@@ -154,8 +154,11 @@ class SyncMasterImporter
         if (isset($data['ecotax']) && $this->shouldWrite('ecotax', $data['ecotax'], $savedHashes)) {
             $product->ecotax = (float)$data['ecotax'];
         }
-        if (isset($data['id_tax_rules_group']) && $this->shouldWrite('tax_rate', $data['id_tax_rules_group'], $savedHashes)) {
-            $product->id_tax_rules_group = (int)$data['id_tax_rules_group'];
+        if (isset($data['tax_rate']) && $this->shouldWrite('tax_rate', $data['tax_rate'], $savedHashes)) {
+            // Usar el porcentaje real (tax_rate) para buscar el grupo correcto en ESTA tienda.
+            // El id_tax_rules_group del master no coincide con el de la slave.
+            $idTaxGroup = SyncMasterVersionCompat::getTaxRuleGroupByRate((float)$data['tax_rate']);
+            $product->id_tax_rules_group = $idTaxGroup;
         }
 
         // Fabricante

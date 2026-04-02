@@ -123,16 +123,19 @@
                             thisBtn.textContent = data.progress === 100 ? '\u2713 Completado' : '\u23F8 Pausado';
                             setTimeout(function () { location.reload(); }, 1500);
                         } else if (data.paused) {
+                            // Error real — dejar el botón de Reanudar visible
                             thisBtn.textContent = '\u23F8 Pausado \u2014 Error';
                             setTimeout(function () { location.reload(); }, 1500);
                         } else {
+                            // Lote OK — actualizar UI y lanzar el siguiente automáticamente
                             var bar = row ? row.querySelector('.progress-bar') : null;
                             if (bar) {
                                 bar.style.width   = data.progress + '%';
                                 bar.textContent   = data.progress + '%';
                             }
-                            thisBtn.textContent = 'Lote ' + data.batch + ' (' + data.progress + '%) \u25B6';
-                            thisBtn.disabled    = false;
+                            thisBtn.textContent = 'Lote ' + data.batch + ' (' + data.progress + '%)...';
+                            // Pausa breve entre lotes para no saturar el servidor
+                            setTimeout(processBatch, 800);
                         }
                     })
                     .catch(function (e) {
