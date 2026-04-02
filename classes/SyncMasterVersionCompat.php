@@ -424,6 +424,53 @@ class SyncMasterVersionCompat
     }
 
     /**
+     * Encuentra el id_product_attribute de una combinación que tenga EXACTAMENTE
+     * los atributos indicados en $attributeIds, para el producto dado.
+     * Reemplaza Product::getIdProductAttributesByIdAttributes() que no existe en PS 9.
+     *
+     * @param  int   $idProduct
+     * @param  int[] $attributeIds
+     * @return int   0 si no existe
+     */
+    public static function findCombinationByAttributes($idProduct, array $attributeIds)
+    {
+        if (empty($attributeIds)) {
+            return 0;
+        }
+        $db   = Db::getInstance();
+        $n    = count($attributeIds);
+        $list = implode(',', array_map('intval', $attributeIds));
+
+        // Combinaciones del producto que contienen AL MENOS todos los atributos pedidos
+        $sql = 'SELECT pac.id_product_attribute
+                FROM `' . _DB_PREFIX_ . 'product_attribute_combination` pac
+                INNER JOIN `' . _DB_PREFIX_ . 'product_attribute` pa
+                    ON pa.id_product_attribute = pac.id_product_attribute
+                WHERE pa.id_product = ' . (int)$idProduct . '
+                  AND pac.id_attribute IN (' . $list . ')
+                GROUP BY pac.id_product_attribute
+                HAVING COUNT(*) = ' . (int)$n;
+
+        $candidates = $db->executeS($sql);
+        if (!$candidates) {
+            return 0;
+        }
+
+        // De los candidatos, conservar los que tienen EXACTAMENTE $n atributos (no más)
+        foreach ($candidates as $row) {
+            $idPa = (int)$row['id_product_attribute'];
+            $total = (int)$db->getValue(
+                'SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'product_attribute_combination`'
+                . ' WHERE id_product_attribute = ' . $idPa
+            );
+            if ($total === $n) {
+                return $idPa;
+            }
+        }
+        return 0;
+    }
+
+    /**
      * URL base de la tienda (sin slash final)
      */
     public static function getShopBaseUrl()

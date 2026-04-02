@@ -793,11 +793,29 @@ class SyncMaster extends Module
     private function smConnectionForm($baseUrl, $idConn, $errors)
     {
         $listUrl    = $baseUrl . '&sm_section=connections';
-        $connection = [];
+        // Defaults for all keys the template accesses (avoids "Undefined array key" in PS9/PHP8)
+        $connection = [
+            'id_connection' => null,
+            'name'          => '',
+            'remote_url'    => '',
+            'api_key'       => '',
+            'api_secret'    => '',
+            'id_mode'       => 'free',
+            'sync_stock'    => 1,
+            'sync_prices'   => 1,
+            'sync_images'   => 1,
+            'batch_size'    => 50,
+            'batch_delay'   => 1,
+            'timeout'       => 30,
+            'active'        => 1,
+        ];
         if ($idConn) {
-            $connection = Db::getInstance()->getRow(
+            $row = Db::getInstance()->getRow(
                 'SELECT * FROM `' . _DB_PREFIX_ . 'sync_connections` WHERE id_connection = ' . $idConn
-            ) ?: [];
+            );
+            if ($row) {
+                $connection = array_merge($connection, $row);
+            }
         }
 
         $storeRole = Configuration::get('SYNCMASTER_ROLE') ?: self::ROLE_MASTER;

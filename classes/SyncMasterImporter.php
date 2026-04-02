@@ -302,7 +302,11 @@ class SyncMasterImporter
             }
 
             // Buscar si ya existe esta combinación
-            $idProductAttribute = $product->getIdProductAttributesByIdAttributes($attributeIds);
+            // (getIdProductAttributesByIdAttributes() no existe en PS 9 — usamos SQL propio)
+            $idProductAttribute = SyncMasterVersionCompat::findCombinationByAttributes(
+                $product->id,
+                $attributeIds
+            );
 
             if (!$idProductAttribute) {
                 // Crear combinación
