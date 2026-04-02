@@ -420,7 +420,9 @@ class SyncMaster extends Module
     public function hookDisplayBackOfficeHeader()
     {
         $ctrl = Tools::getValue('controller', '');
-        if (strpos($ctrl, 'AdminSync') !== false) {
+        // Cargar assets en todos los controllers AdminSync* y también en AdminModules
+        // (cuando el admin pulsa "Configurar" el controller es AdminModules)
+        if (strpos($ctrl, 'AdminSync') !== false || $ctrl === 'AdminModules') {
             $this->context->controller->addJS($this->_path . 'views/js/syncmaster-admin.js');
             $this->context->controller->addCSS($this->_path . 'views/css/syncmaster-admin.css');
         }
@@ -611,6 +613,11 @@ class SyncMaster extends Module
             }
         }
 
+        // Forzar carga de CSS/JS en el contexto de "Configurar" (controller = AdminModules)
+        // El hook displayBackOfficeHeader no se dispara aquí porque el controller no es AdminSync*
+        $this->context->controller->addCSS($this->_path . 'views/css/syncmaster-admin.css');
+        $this->context->controller->addJS($this->_path . 'views/js/syncmaster-admin.js');
+
         $tplDir  = dirname(__FILE__) . '/views/templates/admin/';
         $tplPath = $tplDir . 'dashboard.tpl';
 
@@ -647,6 +654,7 @@ class SyncMaster extends Module
             'syncmaster_ping_results'   => [],
             'syncmaster_ps_version'     => _PS_VERSION_,
             'syncmaster_module_version' => $this->version,
+            'syncmaster_ps_root_dir'    => _PS_ROOT_DIR_,
             'syncmaster_ajax_url'       => $links['dashboard'],
             'link_connections'          => $links['connections'],
             'link_fields'               => $links['fields'],

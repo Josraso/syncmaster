@@ -162,7 +162,7 @@
         <div class="panel-heading"><i class="icon-time"></i> Configuración del cron</div>
         <div class="panel-body">
             <p>Para procesar la cola automáticamente, añade esta línea a tu crontab:</p>
-            <code>* * * * * php {_PS_ROOT_DIR_}/modules/syncmaster/cron/retry_queue.php</code>
+            <code>* * * * * php {$syncmaster_ps_root_dir}/modules/syncmaster/cron/retry_queue.php</code>
             <br><br>
             <p>O configura esta URL en el cron de tu panel de hosting:</p>
             <code>{$syncmaster_cron_url|escape:'html'}</code>
