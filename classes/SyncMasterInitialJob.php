@@ -113,8 +113,15 @@ class SyncMasterInitialJob
             return ['done' => true, 'progress' => 100, 'phase' => $job['phase']];
         }
 
+        // Si el job está pausado/fallido, auto-reanudar para que el admin
+        // pueda reintentar con un solo clic (el botón "▶ Reanudar")
         if ($job['status'] === 'paused' || $job['status'] === 'failed') {
-            return ['done' => false, 'error' => 'Job pausado o fallido', 'status' => $job['status']];
+            Db::getInstance()->update('sync_initial_job', [
+                'status'        => 'running',
+                'error_log'     => null,
+                'last_activity' => date('Y-m-d H:i:s'),
+            ], 'id_job = ' . (int)$idJob);
+            $job['status'] = 'running';
         }
 
         // Actualizar actividad
