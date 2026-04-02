@@ -1,0 +1,106 @@
+/* SyncMaster Pro — Admin CSS */
+
+.syncmaster-wrap { padding: 10px 0; }
+
+.sm-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #e8e8e8;
+}
+.sm-header h2 { margin: 0; font-size: 22px; }
+.sm-header .sm-icon { font-size: 20px; margin-right: 8px; }
+
+/* Badges de rol */
+.sm-role-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 3px;
+    font-weight: 600;
+    font-size: 13px;
+    color: #fff;
+}
+.sm-role-master { background: #2196F3; }
+.sm-role-slave  { background: #4CAF50; }
+.sm-role-both   { background: #9C27B0; }
+
+/* Estadísticas */
+.sm-stats-row {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+.sm-stat {
+    flex: 1;
+    min-width: 100px;
+    background: #f7f7f7;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    padding: 12px;
+    text-align: center;
+}
+.sm-stat-num {
+    font-size: 28px;
+    font-weight: 700;
+    line-height: 1;
+}
+.sm-stat-label {
+    font-size: 11px;
+    color: #888;
+    margin-top: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.sm-stat-pending    .sm-stat-num { color: #FF9800; }
+.sm-stat-processing .sm-stat-num { color: #2196F3; }
+.sm-stat-done       .sm-stat-num { color: #4CAF50; }
+.sm-stat-failed     .sm-stat-num { color: #f44336; }
+.sm-stat-action { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+
+/* Tabla de acciones */
+.sm-actions { white-space: nowrap; }
+.sm-actions .btn { margin-right: 2px; }
+
+/* Filas inactivas */
+.sm-row-inactive { opacity: 0.55; }
+
+/* Campos config */
+.sm-fields-legend {
+    margin-bottom: 10px;
+    padding: 8px 12px;
+    background: #f5f5f5;
+    border-radius: 4px;
+    font-size: 12px;
+    color: #555;
+}
+.sm-legend-item { margin-right: 10px; }
+.sm-legend-sep  { margin-right: 10px; color: #ccc; }
+.sm-policy-always { color: #4CAF50; }
+.sm-policy-if     { color: #FF9800; }
+.sm-policy-never  { color: #f44336; }
+
+.sm-fields-table td, .sm-fields-table th { vertical-align: middle !important; }
+.sm-fields-table code { font-size: 12px; background: #f0f0f0; padding: 1px 5px; border-radius: 2px; }
+
+.sm-group-heading { display: flex; align-items: center; justify-content: space-between; }
+
+/* Progress */
+.sm-progress { height: 16px; margin-bottom: 4px; }
+.sm-progress .progress-bar { font-size: 11px; line-height: 16px; }
+
+/* Log rows */
+.sm-log-success td { }
+.sm-log-warning td { background-color: #fffde7 !important; }
+.sm-log-error   td { background-color: #ffebee !important; }
+
+/* Mono inputs */
+.sm-mono { font-family: monospace; font-size: 12px; }
+
+/* Responsive */
+@media (max-width: 768px) {
+    .sm-stats-row { flex-direction: column; }
+    .sm-stat      { min-width: auto; }
+}
