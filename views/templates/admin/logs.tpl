@@ -35,8 +35,10 @@
 
     {* Filtros *}
     <form method="get" class="form-inline" style="margin-bottom:15px">
-        <input type="hidden" name="controller" value="AdminSyncLogs">
+        <input type="hidden" name="controller" value="AdminModules">
         <input type="hidden" name="token" value="{$smarty.get.token|default:''}">
+        <input type="hidden" name="configure" value="syncmaster">
+        <input type="hidden" name="sm_section" value="logs">
         <select name="id_connection" class="form-control">
             <option value="">Todas las conexiones</option>
             {foreach $connections as $conn}

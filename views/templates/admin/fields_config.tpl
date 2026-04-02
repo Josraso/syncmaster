@@ -8,8 +8,10 @@
     <div class="panel panel-default">
         <div class="panel-body">
             <form method="get" class="form-inline">
-                <input type="hidden" name="controller" value="AdminSyncFields">
+                <input type="hidden" name="controller" value="AdminModules">
                 <input type="hidden" name="token" value="{$smarty.get.token|default:''}">
+                <input type="hidden" name="configure" value="syncmaster">
+                <input type="hidden" name="sm_section" value="fields">
                 <label style="margin-right:10px">Conexión:</label>
                 <select name="id_connection" class="form-control" onchange="this.form.submit()">
                     {foreach $connections as $conn}

@@ -27,7 +27,7 @@
                 var ajaxUrl = btn.dataset.ajaxUrl;
                 btn.disabled    = true;
                 btn.textContent = 'Procesando...';
-                fetch(ajaxUrl + '&action=runQueue&ajax=1', {
+                fetch(ajaxUrl + '&sm_ajax=runQueue', {
                     method: 'POST',
                     headers: { 'X-Requested-With': 'XMLHttpRequest' }
                 })
@@ -57,7 +57,7 @@
                     pingResult.style.display = 'block';
                     pingResult.textContent   = 'Comprobando conexi\u00f3n...';
                 }
-                fetch(connUrl + '&sm_action=ping&id_connection=' + id + '&ajax=1&action=ping', {
+                fetch(connUrl + '&sm_ajax=ping&id_connection=' + id, {
                     method: 'POST',
                     headers: { 'X-Requested-With': 'XMLHttpRequest' }
                 })
@@ -93,7 +93,7 @@
                 thisBtn.textContent = 'Procesando...';
 
                 function processBatch() {
-                    fetch(syncUrl + '&action=nextBatch&ajax=1&id_job=' + jobId, {
+                    fetch(syncUrl + '&sm_ajax=nextBatch&id_job=' + jobId, {
                         method: 'POST',
                         headers: { 'X-Requested-With': 'XMLHttpRequest' }
                     })

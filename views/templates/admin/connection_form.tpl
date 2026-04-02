@@ -4,6 +4,12 @@
 <div class="syncmaster-wrap">
     <h2>⇄ {if $is_edit}Editar conexión{else}Nueva conexión{/if}</h2>
 
+    {if !empty($errors)}
+        {foreach $errors as $err}
+            <div class="alert alert-danger">{$err|escape:'html'}</div>
+        {/foreach}
+    {/if}
+
     <div class="panel">
         <form method="post" action="{$form_action}">
             {if $is_edit}

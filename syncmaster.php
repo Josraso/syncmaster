@@ -595,85 +595,471 @@ class SyncMaster extends Module
     }
 
     // =========================================================================
-    // PANEL DE CONFIGURACIÓN (desde lista de módulos → "Configurar")
+    // PANEL DE CONFIGURACIÓN — todo el módulo vive aquí para máxima
+    // compatibilidad PS 1.6 → 9 (los sub-controllers dan página en blanco en PS 8.2)
     // =========================================================================
 
     /**
-     * getContent() es llamado cuando el admin pulsa "Configurar" en la lista de módulos.
-     * No redirigimos a otro controller para evitar problemas de routing.
-     * Renderizamos el dashboard directamente aquí con smarty->fetch().
+     * Punto de entrada único. Enruta según sm_section y sm_action GET/POST params.
+     * AJAX detectado con sm_ajax param → responde JSON y termina.
      */
     public function getContent()
     {
-        // Cargar clases necesarias
+        $this->smLoadClasses();
+
+        $this->context->controller->addCSS($this->_path . 'views/css/syncmaster-admin.css');
+        $this->context->controller->addJS($this->_path . 'views/js/syncmaster-admin.js');
+
+        $baseUrl = $this->context->link->getAdminLink('AdminModules') . '&configure=' . $this->name;
+
+        $smAjax = Tools::getValue('sm_ajax', '');
+        if ($smAjax) {
+            $this->smAjaxDispatch($smAjax);
+            exit;
+        }
+
+        $section = Tools::getValue('sm_section', 'dashboard');
+        $action  = Tools::getValue('sm_action', '');
+        $idConn  = (int)Tools::getValue('id_connection', 0);
+        $idJob   = (int)Tools::getValue('id_job', 0);
+
+        switch ($section) {
+            case 'connections': return $this->smConnections($baseUrl, $action, $idConn);
+            case 'fields':      return $this->smFields($baseUrl, $action, $idConn);
+            case 'sync':        return $this->smSync($baseUrl, $action, $idConn, $idJob);
+            case 'logs':        return $this->smLogs($baseUrl, $action, $idConn);
+            default:            return $this->smDashboard($baseUrl);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Helpers internos de getContent()
+    // -------------------------------------------------------------------------
+
+    private function smLoadClasses()
+    {
         $dir = dirname(__FILE__) . '/classes/';
-        foreach (['SyncMasterHelpers', 'SyncMasterQueue', 'SyncMasterApi', 'SyncMasterVersionCompat'] as $cls) {
+        foreach ([
+            'SyncMasterVersionCompat', 'SyncMasterHelpers', 'SyncMasterQueue',
+            'SyncMasterApi', 'SyncMasterFieldConfig', 'SyncMasterInitialJob',
+            'SyncMasterSerializer', 'SyncMasterLogger',
+        ] as $cls) {
             if (!class_exists($cls) && file_exists($dir . $cls . '.php')) {
                 require_once $dir . $cls . '.php';
             }
         }
+    }
 
-        // Guardar configuración de rol si se envió el formulario
-        $settingsConfirm = '';
+    /** Renderiza una plantilla del módulo y devuelve el HTML. */
+    private function smFetch($tplName, $vars)
+    {
+        $tplDir = dirname(__FILE__) . '/views/templates/admin/';
+        $this->context->smarty->addTemplateDir($tplDir);
+        $this->context->smarty->assign($vars);
+        return $this->context->smarty->fetch($tplDir . $tplName);
+    }
+
+    /** Responde peticiones AJAX con JSON. */
+    private function smAjaxDispatch($action)
+    {
+        header('Content-Type: application/json');
+        switch ($action) {
+            case 'runQueue':
+                $stats = SyncMasterQueue::processQueue(50);
+                echo json_encode(['success' => true, 'stats' => $stats]);
+                break;
+            case 'ping':
+                $idConn = (int)Tools::getValue('id_connection', 0);
+                if (!$idConn) { echo json_encode(['success' => false, 'error' => 'ID no válido']); break; }
+                $conn = Db::getInstance()->getRow(
+                    'SELECT * FROM `' . _DB_PREFIX_ . 'sync_connections` WHERE id_connection = ' . $idConn
+                );
+                if (!$conn) { echo json_encode(['success' => false, 'error' => 'Conexión no encontrada']); break; }
+                $api = new SyncMasterApi($conn['remote_url'], $conn['api_key'], $conn['api_secret']);
+                echo json_encode($api->ping());
+                break;
+            case 'nextBatch':
+                $idJob = (int)Tools::getValue('id_job', 0);
+                if (!$idJob) { echo json_encode(['error' => 'Job ID inválido']); break; }
+                echo json_encode(SyncMasterInitialJob::processNextBatch($idJob));
+                break;
+            default:
+                echo json_encode(['error' => 'Acción desconocida']);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Secciones
+    // -------------------------------------------------------------------------
+
+    private function smDashboard($baseUrl)
+    {
+        $confirm = '';
         if (Tools::isSubmit('submitSyncMasterSettings')) {
             $role = Tools::getValue('syncmaster_role', 'master');
             if (!in_array($role, [self::ROLE_MASTER, self::ROLE_SLAVE, self::ROLE_BOTH])) {
                 $role = self::ROLE_MASTER;
             }
             Configuration::updateValue('SYNCMASTER_ROLE', $role);
-            $settingsConfirm = $this->l('Rol guardado correctamente.');
+            $confirm = $this->l('Rol guardado correctamente.');
         }
 
-        // Forzar carga de CSS/JS en el contexto de "Configurar" (controller = AdminModules)
-        // El hook displayBackOfficeHeader no se dispara aquí porque el controller no es AdminSync*
-        $this->context->controller->addCSS($this->_path . 'views/css/syncmaster-admin.css');
-        $this->context->controller->addJS($this->_path . 'views/js/syncmaster-admin.js');
-
-        $tplDir  = dirname(__FILE__) . '/views/templates/admin/';
-        $tplPath = $tplDir . 'dashboard.tpl';
-
-        // Ejecutar cola pendiente
         if (Configuration::get('SYNCMASTER_QUEUE_WORKER')) {
             SyncMasterQueue::processQueue(10);
         }
 
-        $connections   = Db::getInstance()->executeS('SELECT * FROM `' . _DB_PREFIX_ . 'sync_connections` ORDER BY name ASC') ?: [];
-        $queueStats    = SyncMasterQueue::getStats();
-        $recentErrors  = SyncMasterLogger::getRecent(10, null, 'error');
-        $cronToken     = Configuration::get('SYNCMASTER_CRON_TOKEN');
-        $cronUrl       = Tools::getShopDomainSsl(true) . __PS_BASE_URI__
+        $connections  = Db::getInstance()->executeS(
+            'SELECT * FROM `' . _DB_PREFIX_ . 'sync_connections` ORDER BY name ASC'
+        ) ?: [];
+        $queueStats   = SyncMasterQueue::getStats();
+        $recentErrors = SyncMasterLogger::getRecent(10, null, 'error');
+        $cronToken    = Configuration::get('SYNCMASTER_CRON_TOKEN');
+        $cronUrl      = Tools::getShopDomainSsl(true) . __PS_BASE_URI__
             . 'modules/syncmaster/cron/retry_queue.php?token=' . $cronToken;
 
-        // Generar URLs para cada sección usando los controllers ocultos
-        $adminLink = $this->context->link;
-        $links = [
-            'connections' => $adminLink->getAdminLink('AdminSyncConnections'),
-            'fields'      => $adminLink->getAdminLink('AdminSyncFields'),
-            'sync'        => $adminLink->getAdminLink('AdminSyncInitialSync'),
-            'logs'        => $adminLink->getAdminLink('AdminSyncLogs'),
-            'dashboard'   => $adminLink->getAdminLink('AdminSyncDashboard'),
+        return $this->smFetch('dashboard.tpl', [
+            'syncmaster_connections'      => $connections,
+            'syncmaster_queue_stats'      => $queueStats,
+            'syncmaster_recent_errors'    => $recentErrors,
+            'syncmaster_recent_success'   => [],
+            'syncmaster_cron_url'         => $cronUrl,
+            'syncmaster_role'             => Configuration::get('SYNCMASTER_ROLE'),
+            'syncmaster_ping_results'     => [],
+            'syncmaster_ps_version'       => _PS_VERSION_,
+            'syncmaster_module_version'   => $this->version,
+            'syncmaster_ps_root_dir'      => _PS_ROOT_DIR_,
+            'syncmaster_ajax_url'         => $baseUrl,
+            'syncmaster_settings_confirm' => $confirm,
+            'sm_base_url'                 => $baseUrl,
+            'link_connections'            => $baseUrl . '&sm_section=connections',
+            'link_fields'                 => $baseUrl . '&sm_section=fields',
+            'link_sync'                   => $baseUrl . '&sm_section=sync',
+            'link_logs'                   => $baseUrl . '&sm_section=logs',
+        ]);
+    }
+
+    private function smConnections($baseUrl, $action, $idConn)
+    {
+        $listUrl = $baseUrl . '&sm_section=connections';
+
+        switch ($action) {
+            case 'add':
+            case 'edit':
+                return $this->smConnectionForm($baseUrl, $idConn, []);
+            case 'save':
+                return $this->smConnectionSave($baseUrl, $idConn);
+            case 'delete':
+                if ($idConn) {
+                    foreach (['sync_connections','sync_field_config','sync_queue',
+                              'sync_id_map','sync_initial_job'] as $t) {
+                        Db::getInstance()->execute(
+                            'DELETE FROM `' . _DB_PREFIX_ . $t . '` WHERE id_connection = ' . $idConn
+                        );
+                    }
+                }
+                Tools::redirectAdmin($listUrl);
+                return '';
+            case 'toggle':
+                if ($idConn) {
+                    $cur = (int)Db::getInstance()->getValue(
+                        'SELECT active FROM `' . _DB_PREFIX_ . 'sync_connections`'
+                        . ' WHERE id_connection = ' . $idConn
+                    );
+                    Db::getInstance()->update('sync_connections', [
+                        'active'   => $cur ? 0 : 1,
+                        'date_upd' => date('Y-m-d H:i:s'),
+                    ], 'id_connection = ' . $idConn);
+                }
+                Tools::redirectAdmin($listUrl);
+                return '';
+        }
+
+        $connections = Db::getInstance()->executeS(
+            'SELECT * FROM `' . _DB_PREFIX_ . 'sync_connections` ORDER BY name ASC'
+        ) ?: [];
+
+        return $this->smFetch('connections_list.tpl', [
+            'connections' => $connections,
+            'link_add'    => $listUrl . '&sm_action=add',
+            'current_url' => $listUrl,
+            'sm_base_url' => $baseUrl,
+        ]);
+    }
+
+    private function smConnectionForm($baseUrl, $idConn, $errors)
+    {
+        $listUrl    = $baseUrl . '&sm_section=connections';
+        $connection = [];
+        if ($idConn) {
+            $connection = Db::getInstance()->getRow(
+                'SELECT * FROM `' . _DB_PREFIX_ . 'sync_connections` WHERE id_connection = ' . $idConn
+            ) ?: [];
+        }
+
+        return $this->smFetch('connection_form.tpl', [
+            'connection'      => $connection,
+            'new_credentials' => !$idConn ? SyncMasterApi::generateCredentials() : [],
+            'is_edit'         => (bool)$idConn,
+            'form_action'     => $listUrl . '&sm_action=save'
+                . ($idConn ? '&id_connection=' . $idConn : ''),
+            'link_list'       => $listUrl,
+            'errors'          => $errors,
+            'role_options'    => [
+                ['value' => 'free',   'label' => $this->l('Free ID — La hija puede tener su propio catálogo')],
+                ['value' => 'shared', 'label' => $this->l('Shared ID — Réplica exacta (mismo ID de producto)')],
+            ],
+        ]);
+    }
+
+    private function smConnectionSave($baseUrl, $idConnUrl)
+    {
+        $listUrl   = $baseUrl . '&sm_section=connections';
+        $idConn    = (int)Tools::getValue('id_connection', $idConnUrl);
+        $now       = date('Y-m-d H:i:s');
+        $name      = trim(Tools::getValue('name', ''));
+        $remoteUrl = rtrim(trim(Tools::getValue('remote_url', '')), '/');
+        $apiKey    = trim(Tools::getValue('api_key', ''));
+        $apiSecret = trim(Tools::getValue('api_secret', ''));
+        $idMode    = Tools::getValue('id_mode', 'free');
+        $errors    = [];
+
+        if (!$name || !$remoteUrl || !$apiKey || !$apiSecret) {
+            $errors[] = $this->l('Todos los campos obligatorios deben rellenarse.');
+        } elseif (!Validate::isUrl($remoteUrl)) {
+            $errors[] = $this->l('La URL no es válida. Debe incluir https://');
+        }
+
+        if ($errors) {
+            return $this->smConnectionForm($baseUrl, $idConn, $errors);
+        }
+
+        $data = [
+            'name'        => pSQL($name),
+            'remote_url'  => pSQL($remoteUrl),
+            'api_key'     => pSQL($apiKey),
+            'api_secret'  => pSQL($apiSecret),
+            'id_mode'     => in_array($idMode, ['shared','free']) ? $idMode : 'free',
+            'active'      => Tools::getValue('active', 0)      ? 1 : 0,
+            'sync_stock'  => Tools::getValue('sync_stock', 0)  ? 1 : 0,
+            'sync_prices' => Tools::getValue('sync_prices', 0) ? 1 : 0,
+            'sync_images' => Tools::getValue('sync_images', 0) ? 1 : 0,
+            'batch_size'  => max(10, min(200, (int)Tools::getValue('batch_size', 50))),
+            'batch_delay' => max(0,  min(30,  (int)Tools::getValue('batch_delay', 1))),
+            'timeout'     => max(10, min(120, (int)Tools::getValue('timeout', 30))),
+            'date_upd'    => $now,
         ];
 
-        $this->context->smarty->addTemplateDir($tplDir);
-        $this->context->smarty->assign([
-            'syncmaster_connections'     => $connections,
-            'syncmaster_queue_stats'     => $queueStats,
-            'syncmaster_recent_errors'   => $recentErrors,
-            'syncmaster_recent_success'  => [],
-            'syncmaster_cron_url'        => $cronUrl,
-            'syncmaster_role'            => Configuration::get('SYNCMASTER_ROLE'),
-            'syncmaster_ping_results'    => [],
-            'syncmaster_ps_version'      => _PS_VERSION_,
-            'syncmaster_module_version'  => $this->version,
-            'syncmaster_ps_root_dir'     => _PS_ROOT_DIR_,
-            'syncmaster_ajax_url'        => $links['dashboard'],
-            'syncmaster_settings_confirm' => $settingsConfirm,
-            'link_connections'           => $links['connections'],
-            'link_fields'                => $links['fields'],
-            'link_sync'                  => $links['sync'],
-            'link_logs'                  => $links['logs'],
-        ]);
+        if ($idConn) {
+            Db::getInstance()->update('sync_connections', $data, 'id_connection = ' . $idConn);
+        } else {
+            $data['date_add'] = $now;
+            Db::getInstance()->insert('sync_connections', $data);
+            $newId = (int)Db::getInstance()->Insert_ID();
+            SyncMasterFieldConfig::initDefaults($newId);
+        }
 
-        return $this->context->smarty->fetch($tplPath);
+        Tools::redirectAdmin($listUrl);
+        return '';
+    }
+
+    private function smFields($baseUrl, $action, $idConn)
+    {
+        $fieldsUrl = $baseUrl . '&sm_section=fields';
+
+        if ($action === 'save' && $idConn) {
+            $allFields = SyncMasterFieldConfig::getAllFields();
+            $posted    = Tools::getAllValues();
+            foreach ($allFields as $group => $groupData) {
+                foreach ($groupData['fields'] as $field) {
+                    $enabled    = isset($posted['field_' . $field]) ? 1 : 0;
+                    $policy     = isset($posted['policy_' . $field]) ? $posted['policy_' . $field] : 'always';
+                    $priceRule  = isset($posted['price_rule_' . $field]) ? $posted['price_rule_' . $field] : 'none';
+                    $priceValue = (float)(isset($posted['price_value_' . $field]) ? $posted['price_value_' . $field] : 0);
+                    if (!in_array($policy, ['always','if_untouched','never'])) { $policy = 'always'; }
+                    if (!in_array($priceRule, ['none','percent_inc','percent_dec','fixed_inc','fixed_dec'])) {
+                        $priceRule = 'none';
+                    }
+                    SyncMasterFieldConfig::saveField($idConn, $group, $field, [
+                        'sync_enabled'     => $enabled,
+                        'overwrite_policy' => $policy,
+                        'price_rule'       => $priceRule,
+                        'price_value'      => $priceValue,
+                    ]);
+                }
+            }
+            Tools::redirectAdmin($fieldsUrl . '&id_connection=' . $idConn);
+            return '';
+        }
+
+        $connections = Db::getInstance()->executeS(
+            'SELECT id_connection, name FROM `' . _DB_PREFIX_ . 'sync_connections`'
+            . ' WHERE active = 1 ORDER BY name ASC'
+        ) ?: [];
+
+        if (!$idConn && !empty($connections)) {
+            $idConn = (int)$connections[0]['id_connection'];
+        }
+
+        $allFields   = SyncMasterFieldConfig::getAllFields();
+        $savedConfig = $idConn ? SyncMasterFieldConfig::getForConnection($idConn) : [];
+
+        return $this->smFetch('fields_config.tpl', [
+            'connections'        => $connections,
+            'id_connection'      => $idConn,
+            'all_fields'         => $allFields,
+            'saved_config'       => $savedConfig,
+            'policy_options'     => [
+                'always'       => $this->l('Siempre sobreescribir (master manda)'),
+                'if_untouched' => $this->l('Solo si la hija no lo modificó'),
+                'never'        => $this->l('Nunca sobreescribir (protegido en hija)'),
+            ],
+            'price_rule_options' => [
+                'none'        => $this->l('Precio original del master'),
+                'percent_inc' => $this->l('Incremento porcentual (+%)'),
+                'percent_dec' => $this->l('Descuento porcentual (−%)'),
+                'fixed_inc'   => $this->l('Incremento fijo (+€)'),
+                'fixed_dec'   => $this->l('Descuento fijo (−€)'),
+            ],
+            'price_fields'       => ['price', 'wholesale_price'],
+            'form_action'        => $fieldsUrl . '&sm_action=save&id_connection=' . $idConn,
+            'link_dashboard'     => $baseUrl,
+            'sm_base_url'        => $baseUrl,
+        ]);
+    }
+
+    private function smSync($baseUrl, $action, $idConn, $idJob)
+    {
+        $syncUrl = $baseUrl . '&sm_section=sync';
+        $errors  = [];
+
+        switch ($action) {
+            case 'start':
+                if (!$idConn) {
+                    $errors[] = $this->l('Selecciona una conexión primero.');
+                } else {
+                    $conn = Db::getInstance()->getRow(
+                        'SELECT * FROM `' . _DB_PREFIX_ . 'sync_connections`'
+                        . ' WHERE id_connection = ' . $idConn . ' AND active = 1'
+                    );
+                    if (!$conn) {
+                        $errors[] = $this->l('Conexión no encontrada o inactiva.');
+                    } else {
+                        $api   = new SyncMasterApi($conn['remote_url'], $conn['api_key'], $conn['api_secret']);
+                        $shake = $api->handshake(['batch_size' => (int)$conn['batch_size']]);
+                        if (!$shake['success']) {
+                            $errors[] = $this->l('No se puede conectar con la tienda hija: ') . $shake['error'];
+                        } else {
+                            SyncMasterInitialJob::startOrResume($idConn);
+                            Tools::redirectAdmin($syncUrl);
+                            return '';
+                        }
+                    }
+                }
+                break;
+            case 'pause':
+                if ($idJob) { SyncMasterInitialJob::pauseJob($idJob); }
+                Tools::redirectAdmin($syncUrl);
+                return '';
+            case 'cancel':
+                if ($idJob) { SyncMasterInitialJob::cancelJob($idJob); }
+                Tools::redirectAdmin($syncUrl);
+                return '';
+            case 'resume':
+                if ($idJob) {
+                    Db::getInstance()->update('sync_initial_job', [
+                        'status'        => 'running',
+                        'last_activity' => date('Y-m-d H:i:s'),
+                    ], 'id_job = ' . $idJob);
+                }
+                Tools::redirectAdmin($syncUrl);
+                return '';
+        }
+
+        $connections = Db::getInstance()->executeS(
+            'SELECT * FROM `' . _DB_PREFIX_ . 'sync_connections` WHERE active = 1 ORDER BY name ASC'
+        ) ?: [];
+
+        $jobs = Db::getInstance()->executeS(
+            'SELECT j.*, c.name AS connection_name'
+            . ' FROM `' . _DB_PREFIX_ . 'sync_initial_job` j'
+            . ' LEFT JOIN `' . _DB_PREFIX_ . 'sync_connections` c ON c.id_connection = j.id_connection'
+            . ' ORDER BY j.date_add DESC LIMIT 20'
+        ) ?: [];
+
+        return $this->smFetch('initial_sync.tpl', [
+            'connections'  => $connections,
+            'jobs'         => $jobs,
+            'errors'       => $errors,
+            'master_stats' => [
+                'products'   => (int)Db::getInstance()->getValue(
+                    'SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'product`'),
+                'categories' => (int)Db::getInstance()->getValue(
+                    'SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'category` WHERE id_category > 2'),
+                'images'     => (int)Db::getInstance()->getValue(
+                    'SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'image`'),
+            ],
+            'ajax_url'       => $syncUrl,
+            'link_dashboard' => $baseUrl,
+            'sm_base_url'    => $baseUrl,
+        ]);
+    }
+
+    private function smLogs($baseUrl, $action, $idConn)
+    {
+        $logsUrl = $baseUrl . '&sm_section=logs';
+        $status  = Tools::getValue('status', '');
+
+        switch ($action) {
+            case 'clear':
+                Db::getInstance()->execute('TRUNCATE `' . _DB_PREFIX_ . 'sync_log`');
+                Tools::redirectAdmin($logsUrl);
+                return '';
+            case 'clear_queue':
+                Db::getInstance()->execute(
+                    'DELETE FROM `' . _DB_PREFIX_ . 'sync_queue` WHERE status = \'failed\''
+                );
+                Tools::redirectAdmin($logsUrl);
+                return '';
+            case 'retry_all':
+                SyncMasterQueue::retryAll();
+                Tools::redirectAdmin($logsUrl);
+                return '';
+        }
+
+        $where = '1=1';
+        if ($idConn) { $where .= ' AND l.id_connection = ' . (int)$idConn; }
+        if ($status && in_array($status, ['success','warning','error'])) {
+            $where .= ' AND l.status = \'' . pSQL($status) . '\'';
+        }
+
+        $logs = Db::getInstance()->executeS(
+            'SELECT l.*, c.name AS connection_name'
+            . ' FROM `' . _DB_PREFIX_ . 'sync_log` l'
+            . ' LEFT JOIN `' . _DB_PREFIX_ . 'sync_connections` c ON c.id_connection = l.id_connection'
+            . ' WHERE ' . $where . ' ORDER BY l.date_add DESC LIMIT 200'
+        ) ?: [];
+
+        $connections = Db::getInstance()->executeS(
+            'SELECT id_connection, name FROM `' . _DB_PREFIX_ . 'sync_connections` ORDER BY name'
+        ) ?: [];
+
+        $queueFailed = Db::getInstance()->executeS(
+            'SELECT q.*, c.name AS connection_name'
+            . ' FROM `' . _DB_PREFIX_ . 'sync_queue` q'
+            . ' LEFT JOIN `' . _DB_PREFIX_ . 'sync_connections` c ON c.id_connection = q.id_connection'
+            . ' WHERE q.status = \'failed\' ORDER BY q.date_add DESC LIMIT 50'
+        ) ?: [];
+
+        return $this->smFetch('logs.tpl', [
+            'logs'           => $logs,
+            'connections'    => $connections,
+            'queue_stats'    => SyncMasterQueue::getStats(),
+            'queue_failed'   => $queueFailed,
+            'filter_conn'    => $idConn,
+            'filter_status'  => $status,
+            'current_url'    => $logsUrl,
+            'link_dashboard' => $baseUrl,
+            'sm_base_url'    => $baseUrl,
+        ]);
     }
 }

@@ -4,6 +4,12 @@
 <div class="syncmaster-wrap">
     <h2>⇄ Sincronización inicial masiva</h2>
 
+    {if !empty($errors)}
+        {foreach $errors as $err}
+            <div class="alert alert-danger">{$err|escape:'html'}</div>
+        {/foreach}
+    {/if}
+
     {* Estadísticas del master *}
     <div class="sm-stats-row">
         <div class="sm-stat">
