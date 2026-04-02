@@ -302,15 +302,33 @@ class SyncMasterVersionCompat
             return $id;
         }
 
-        $attr = new Attribute();
-        $attr->id_attribute_group = (int)$idAttributeGroup;
-        $attr->position           = 0;
-        foreach (Language::getLanguages(false) as $lang) {
-            $attr->name[$lang['id_lang']] = $valueName;
-        }
-        $attr->add();
+        // Direct SQL insert — avoids PHP 8 conflict with built-in Attribute class
+        // (PHP 8.0 defines a built-in Attribute class with no add() method)
+        $position = (int)Db::getInstance()->getValue(
+            'SELECT COALESCE(MAX(position), 0) + 1 FROM `' . _DB_PREFIX_ . 'attribute`'
+            . ' WHERE id_attribute_group = ' . (int)$idAttributeGroup
+        );
 
-        return (int)$attr->id;
+        Db::getInstance()->insert('attribute', [
+            'id_attribute_group' => (int)$idAttributeGroup,
+            'color'              => '',
+            'position'           => $position,
+        ]);
+        $id = (int)Db::getInstance()->Insert_ID();
+
+        if (!$id) {
+            return 0;
+        }
+
+        foreach (Language::getLanguages(false) as $lang) {
+            Db::getInstance()->insert('attribute_lang', [
+                'id_attribute' => $id,
+                'id_lang'      => (int)$lang['id_lang'],
+                'name'         => pSQL($valueName),
+            ], false, false, Db::INSERT_IGNORE);
+        }
+
+        return $id;
     }
 
     // =========================================================================

@@ -470,7 +470,9 @@ class SyncMasterImporter
 
         $localId = $this->resolveLocalId('product', $masterId);
         if (!$localId) {
-            return ['success' => false, 'error' => 'Producto no encontrado para stock update'];
+            // Producto aún no sincronizado (sync inicial en curso o producto eliminado).
+            // El stock se establecerá cuando se importe el producto. No es un error.
+            return ['success' => true, 'skipped' => true];
         }
 
         // Resolver attribute ID si aplica

@@ -655,8 +655,12 @@ class SyncMaster extends Module
     {
         $tplDir = dirname(__FILE__) . '/views/templates/admin/';
         $this->context->smarty->addTemplateDir($tplDir);
+        // Force recompile so template changes are picked up without clearing PS cache
+        $this->context->smarty->force_compile = true;
         $this->context->smarty->assign($vars);
-        return $this->context->smarty->fetch($tplDir . $tplName);
+        $html = $this->context->smarty->fetch($tplDir . $tplName);
+        $this->context->smarty->force_compile = false;
+        return $html;
     }
 
     /** Responde peticiones AJAX con JSON. */
@@ -929,6 +933,7 @@ class SyncMaster extends Module
             'form_action'        => $fieldsUrl . '&sm_action=save&id_connection=' . $idConn,
             'link_dashboard'     => $baseUrl,
             'sm_base_url'        => $baseUrl,
+            'store_role'         => Configuration::get('SYNCMASTER_ROLE') ?: self::ROLE_MASTER,
         ]);
     }
 

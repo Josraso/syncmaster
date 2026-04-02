@@ -4,6 +4,27 @@
 <div class="syncmaster-wrap">
     <h2>⇄ Configuración de campos por conexión</h2>
 
+    {* Explicación según rol *}
+    {if $store_role == 'master' || $store_role == 'both'}
+    <div class="alert alert-info" style="margin-bottom:15px">
+        <i class="icon-info-sign"></i>
+        <strong>Esta tienda es MASTER.</strong>
+        Aquí configuras qué campos se <strong>envían</strong> a cada tienda hija y cómo se transforman los precios.
+        Si deshabilitas un campo, no se enviará a la hija aunque cambie en el master.
+        <br><small class="text-muted">Nota: en la tienda SLAVE también hay esta pantalla, donde se configura qué campos acepta y si los sobreescribe.</small>
+    </div>
+    {else}
+    <div class="alert alert-success" style="margin-bottom:15px">
+        <i class="icon-info-sign"></i>
+        <strong>Esta tienda es SLAVE.</strong>
+        Aquí configuras qué campos <strong>acepta y aplica</strong> cuando el master envía cambios.
+        <br>
+        <strong>Siempre sobreescribir</strong> = el master manda.<br>
+        <strong>Solo si no se modificó</strong> = si lo editaste aquí manualmente, no se sobreescribe.<br>
+        <strong>Nunca</strong> = este campo siempre se conserva como está en esta tienda.
+    </div>
+    {/if}
+
     {* Selector de conexión *}
     <div class="panel panel-default">
         <div class="panel-body">
