@@ -412,6 +412,79 @@ class SyncMasterVersionCompat
     }
 
     /**
+     * Crea una combinación de producto de forma compatible entre PS 1.6 y 1.7+.
+     *
+     * PS 1.6: addProductAttribute($price, $weight, $unit_price_impact, $ecotax,
+     *             $quantity, $images, $reference, $ean13='', $default=false,
+     *             $location=null, $upc='', $minimal_quantity=1, $available_date=null,
+     *             $update_all_fields=true)   → 14 params
+     *
+     * PS 1.7+: addProductAttribute($price, $weight, $unit_price_impact, $ecotax,
+     *              $images, $reference='', $ean13='', $default=false,
+     *              $location=null, $upc='', ...)   → sin $quantity
+     *
+     * @param  Product $product
+     * @param  array   $comb   datos de la combinación (price, weight, reference, ean13, upc, is_default, quantity)
+     * @return int     id_product_attribute creado, 0 si error
+     */
+    public static function addProductAttributeCompat($product, array $comb)
+    {
+        $price     = (float)(isset($comb['price'])     ? $comb['price']     : 0);
+        $weight    = (float)(isset($comb['weight'])    ? $comb['weight']    : 0);
+        $reference = isset($comb['reference'])  ? $comb['reference']  : '';
+        $ean13     = isset($comb['ean13'])       ? $comb['ean13']      : '';
+        $upc       = isset($comb['upc'])         ? $comb['upc']        : '';
+        $default   = !empty($comb['is_default']);
+        $quantity  = (int)(isset($comb['quantity']) ? $comb['quantity'] : 0);
+
+        if (self::isPS16()) {
+            // PS 1.6 needs $quantity and $images before $reference
+            return (int)$product->addProductAttribute(
+                $price, $weight,
+                0,        // unit_price_impact
+                0,        // ecotax
+                $quantity,
+                [],       // images — handled separately
+                $reference,
+                $ean13,
+                $default,
+                null,     // location
+                $upc,
+                1,        // minimal_quantity
+                null,     // available_date
+                true      // update_all_fields
+            );
+        }
+
+        // PS 1.7 / 1.8 / 8 / 9 — no $quantity param (stock via StockAvailable)
+        return (int)$product->addProductAttribute(
+            $price, $weight,
+            0,        // unit_price_impact
+            0,        // ecotax
+            [],       // images — handled separately
+            $reference,
+            $ean13,
+            $default,
+            null,     // location
+            $upc
+        );
+    }
+
+    /**
+     * Llama a StockAvailable::postProcess() sólo si existe (no en PS 1.7 < 1.7.8 aprox).
+     * En versiones sin este método el stock ya queda correcto via setProductStock().
+     *
+     * @param Product $product
+     */
+    public static function postProcessCombinations($product)
+    {
+        $product->checkDefaultAttributes();
+        if (method_exists('StockAvailable', 'postProcess')) {
+            StockAvailable::postProcess($product);
+        }
+    }
+
+    /**
      * Mapa iso_code → id_lang
      */
     public static function getLanguageMap()

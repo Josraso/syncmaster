@@ -309,19 +309,8 @@ class SyncMasterImporter
             );
 
             if (!$idProductAttribute) {
-                // Crear combinación
-                $idProductAttribute = (int)$product->addProductAttribute(
-                    (float)$comb['price'],
-                    (float)$comb['weight'],
-                    0, // price impact = 0 porque ya viene el precio final
-                    0,
-                    (isset($comb['reference']) ? $comb['reference'] : ''),
-                    '',
-                    (isset($comb['ean13']) ? $comb['ean13'] : ''),
-                    (isset($comb['is_default']) ? $comb['is_default'] : false),
-                    null,
-                    (isset($comb['upc']) ? $comb['upc'] : '')
-                );
+                // Crear combinación (wrapper con firma correcta según versión PS)
+                $idProductAttribute = SyncMasterVersionCompat::addProductAttributeCompat($product, $comb);
 
                 if ($idProductAttribute) {
                     $product->addAttributeCombinaison($idProductAttribute, $attributeIds);
@@ -354,8 +343,7 @@ class SyncMasterImporter
             }
         }
 
-        $product->checkDefaultAttributes();
-        StockAvailable::postProcess($product);
+        SyncMasterVersionCompat::postProcessCombinations($product);
     }
 
     // =========================================================================
