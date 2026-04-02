@@ -74,13 +74,37 @@ class SyncmasterApiModuleFrontController extends ModuleFrontController
         header('Cache-Control: no-store, no-cache');
         header('X-Robots-Tag: noindex');
 
-        // El módulo debe estar instalado y en rol slave o both
-        $role = Configuration::get('SYNCMASTER_ROLE');
-        if (!in_array($role, ['slave', 'both'])) {
-            $this->jsonExit(403, ['error' => 'Esta tienda no está configurada como slave.']);
+        try {
+            $this->dispatchAction();
+        } catch (Exception $e) {
+            $this->jsonExit(500, [
+                'error' => 'Excepción interna: ' . $e->getMessage(),
+                'file'  => basename($e->getFile()) . ':' . $e->getLine(),
+            ]);
+        } catch (Error $e) {
+            // PHP 7+ fatal errors
+            $this->jsonExit(500, [
+                'error' => 'Error fatal: ' . $e->getMessage(),
+                'file'  => basename($e->getFile()) . ':' . $e->getLine(),
+            ]);
         }
+    }
 
+    private function dispatchAction()
+    {
         $action = Tools::getValue('action', '');
+        $role   = Configuration::get('SYNCMASTER_ROLE');
+
+        // ping y status son tests de conectividad: funcionan en cualquier rol
+        // receive, batch y handshake requieren que esta tienda sea slave o both
+        if ($action !== 'ping' && $action !== 'status') {
+            if (!in_array($role, ['slave', 'both'])) {
+                $this->jsonExit(403, [
+                    'error' => 'Esta tienda no está configurada como slave'
+                        . ' (rol actual: ' . ($role ?: 'no configurado') . ').',
+                ]);
+            }
+        }
 
         switch ($action) {
             case 'ping':      $this->handlePing();      break;
@@ -153,13 +177,31 @@ class SyncmasterApiModuleFrontController extends ModuleFrontController
 
     private function handlePing()
     {
-        $auth = $this->authenticate();
+        // Ping no requiere HMAC — es un test de conectividad básico.
+        // Si viene con cabeceras de auth válidas las verificamos; si no, respondemos igualmente.
+        $apiKey = $this->getHeader('X-SyncMaster-Key');
+        $authOk = false;
+        if ($apiKey) {
+            $connection = Db::getInstance()->getRow(
+                'SELECT * FROM `' . _DB_PREFIX_ . 'sync_connections`'
+                . ' WHERE api_key = \'' . pSQL($apiKey) . '\' AND active = 1 LIMIT 1'
+            );
+            if ($connection) {
+                $sig  = $this->getHeader('X-SyncMaster-Sig');
+                $ts   = $this->getHeader('X-SyncMaster-TS');
+                $body = file_get_contents('php://input');
+                $authOk = $sig && $ts && $body !== false
+                    && SyncMasterApi::verifySignature($body, $ts, $sig, $connection['api_secret']);
+            }
+        }
+
         $this->jsonExit(200, [
-            'status'     => 'ok',
-            'ps_version' => _PS_VERSION_,
-            'module'     => 'syncmaster',
-            'role'       => Configuration::get('SYNCMASTER_ROLE'),
-            'ts'         => time(),
+            'status'        => 'ok',
+            'ps_version'    => _PS_VERSION_,
+            'module'        => 'syncmaster',
+            'role'          => Configuration::get('SYNCMASTER_ROLE'),
+            'authenticated' => $authOk,
+            'ts'            => time(),
         ]);
     }
 
