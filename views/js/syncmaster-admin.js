@@ -8,6 +8,26 @@
 
     document.addEventListener('DOMContentLoaded', function () {
 
+        /* ---- Formulario de conexión: copiar API Key / Secret ---- */
+        document.querySelectorAll('.sm-copy-btn').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var targetId = this.dataset.target;
+                var input    = document.getElementById(targetId);
+                if (!input) { return; }
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(input.value).then(function () {
+                        btn.innerHTML = '<i class="icon-ok"></i>';
+                        setTimeout(function () { btn.innerHTML = '<i class="icon-copy"></i>'; }, 2000);
+                    });
+                } else {
+                    input.select();
+                    document.execCommand('copy');
+                    btn.innerHTML = '<i class="icon-ok"></i>';
+                    setTimeout(function () { btn.innerHTML = '<i class="icon-copy"></i>'; }, 2000);
+                }
+            });
+        });
+
         /* ---- Confirmación para acciones destructivas ---- */
         document.querySelectorAll('[data-sm-confirm]').forEach(function (el) {
             el.addEventListener('click', function (e) {
