@@ -26,12 +26,13 @@
         </div>
     </div>
 
-    {* Lanzar nuevo sync *}
+    {* Lanzar nuevo sync — solo en master *}
+    {if $is_master}
     <div class="panel">
         <div class="panel-heading"><i class="icon-refresh"></i> Lanzar sync inicial</div>
         <div class="panel-body">
             <p class="text-muted">
-                El sync inicial envía todo el catálogo (categorías → fabricantes → atributos → características → productos → imágenes)
+                Envía todo el catálogo (categorías → fabricantes → atributos → características → productos → imágenes)
                 a la tienda hija por lotes. Puedes pausarlo y reanudarlo en cualquier momento.
             </p>
             {if empty($connections)}
@@ -56,6 +57,14 @@
             {/if}
         </div>
     </div>
+    {else}
+    <div class="alert alert-info">
+        <i class="icon-info-sign"></i>
+        <strong>Esta tienda es Slave.</strong>
+        El sync inicial lo lanza la tienda Master desde su panel de SyncMaster Pro.
+        Esta tienda recibirá los datos automáticamente cuando el master lo inicie.
+    </div>
+    {/if}
 
     {* Jobs en curso y recientes *}
     <div class="panel">

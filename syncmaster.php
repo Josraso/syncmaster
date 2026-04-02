@@ -1004,6 +1004,11 @@ class SyncMaster extends Module
                     'SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'image`'),
             ],
             'ajax_url'       => $syncUrl,
+            'store_role'     => Configuration::get('SYNCMASTER_ROLE') ?: self::ROLE_MASTER,
+            'is_master'      => in_array(
+                Configuration::get('SYNCMASTER_ROLE') ?: self::ROLE_MASTER,
+                [self::ROLE_MASTER, self::ROLE_BOTH]
+            ),
             'link_dashboard' => $baseUrl,
             'sm_base_url'    => $baseUrl,
         ]);

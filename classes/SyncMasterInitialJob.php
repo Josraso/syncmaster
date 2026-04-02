@@ -45,7 +45,7 @@ class SyncMasterInitialJob
             'SELECT * FROM `' . _DB_PREFIX_ . 'sync_initial_job`
              WHERE id_connection = ' . (int)$idConnection . '
              AND status IN (\'pending\', \'running\', \'paused\')
-             ORDER BY date_add DESC LIMIT 1'
+             ORDER BY date_add DESC'
         );
 
         if ($existing) {

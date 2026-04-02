@@ -223,7 +223,7 @@ class SyncMasterVersionCompat
         // Buscar proveedor por nombre en BD
         $result = Db::getInstance()->getValue(
             'SELECT id_supplier FROM `' . _DB_PREFIX_ . 'supplier`
-             WHERE name = \'' . pSQL($name) . '\' LIMIT 1'
+             WHERE name = \'' . pSQL($name) . '\''
         );
         return $result ? (int)$result : 0;
     }
@@ -244,8 +244,7 @@ class SyncMasterVersionCompat
                     ON tr.id_tax_rules_group = trg.id_tax_rules_group
                 INNER JOIN `' . _DB_PREFIX_ . 'tax` t
                     ON t.id_tax = tr.id_tax
-                WHERE t.rate = ' . (float)$rate . '
-                LIMIT 1';
+                WHERE t.rate = ' . (float)$rate . '';
 
         $result = Db::getInstance()->getValue($sql);
         return $result ? (int)$result : 1; // 1 = sin impuesto como fallback
@@ -264,8 +263,7 @@ class SyncMasterVersionCompat
         $sql = 'SELECT agl.id_attribute_group
                 FROM `' . _DB_PREFIX_ . 'attribute_group_lang` agl
                 WHERE agl.name = \'' . pSQL($name) . '\'
-                AND agl.id_lang = ' . (int)$idLang . '
-                LIMIT 1';
+                AND agl.id_lang = ' . (int)$idLang . '';
 
         $id = (int)Db::getInstance()->getValue($sql);
         if ($id) {
@@ -297,8 +295,7 @@ class SyncMasterVersionCompat
                     ON a.id_attribute = al.id_attribute
                 WHERE al.name = \'' . pSQL($valueName) . '\'
                 AND al.id_lang = ' . (int)$idLang . '
-                AND a.id_attribute_group = ' . (int)$idAttributeGroup . '
-                LIMIT 1';
+                AND a.id_attribute_group = ' . (int)$idAttributeGroup . '';
 
         $id = (int)Db::getInstance()->getValue($sql);
         if ($id) {
@@ -325,8 +322,7 @@ class SyncMasterVersionCompat
         $sql = 'SELECT fl.id_feature
                 FROM `' . _DB_PREFIX_ . 'feature_lang` fl
                 WHERE fl.name = \'' . pSQL($name) . '\'
-                AND fl.id_lang = ' . (int)$idLang . '
-                LIMIT 1';
+                AND fl.id_lang = ' . (int)$idLang . '';
 
         $id = (int)Db::getInstance()->getValue($sql);
         if ($id) {
@@ -351,8 +347,7 @@ class SyncMasterVersionCompat
                     ON fv.id_feature_value = fvl.id_feature_value
                 WHERE fvl.value = \'' . pSQL($value) . '\'
                 AND fvl.id_lang = ' . (int)$idLang . '
-                AND fv.id_feature = ' . (int)$idFeature . '
-                LIMIT 1';
+                AND fv.id_feature = ' . (int)$idFeature . '';
 
         $id = (int)Db::getInstance()->getValue($sql);
         if ($id) {

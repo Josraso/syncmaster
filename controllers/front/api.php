@@ -139,8 +139,7 @@ class SyncmasterApiModuleFrontController extends ModuleFrontController
         // Buscar la conexión por api_key
         $connection = Db::getInstance()->getRow(
             'SELECT * FROM `' . _DB_PREFIX_ . 'sync_connections`
-             WHERE api_key = \'' . pSQL($apiKey) . '\' AND active = 1
-             LIMIT 1'
+             WHERE api_key = \'' . pSQL($apiKey) . '\' AND active = 1'
         );
 
         if (!$connection) {

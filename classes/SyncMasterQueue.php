@@ -340,8 +340,7 @@ class SyncMasterQueue
              WHERE id_connection = ' . (int)$idConnection . '
                AND entity_type = \'' . pSQL($entityType) . '\'
                AND entity_id   = ' . (int)$entityId . '
-               AND status IN (\'' . self::STATUS_PENDING . '\', \'' . self::STATUS_PROCESSING . '\')
-             LIMIT 1'
+               AND status IN (\'' . self::STATUS_PENDING . '\', \'' . self::STATUS_PROCESSING . '\')'
         );
     }
 
