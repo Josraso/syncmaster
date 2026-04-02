@@ -177,31 +177,13 @@ class SyncmasterApiModuleFrontController extends ModuleFrontController
 
     private function handlePing()
     {
-        // Ping no requiere HMAC — es un test de conectividad básico.
-        // Si viene con cabeceras de auth válidas las verificamos; si no, respondemos igualmente.
-        $apiKey = $this->getHeader('X-SyncMaster-Key');
-        $authOk = false;
-        if ($apiKey) {
-            $connection = Db::getInstance()->getRow(
-                'SELECT * FROM `' . _DB_PREFIX_ . 'sync_connections`'
-                . ' WHERE api_key = \'' . pSQL($apiKey) . '\' AND active = 1 LIMIT 1'
-            );
-            if ($connection) {
-                $sig  = $this->getHeader('X-SyncMaster-Sig');
-                $ts   = $this->getHeader('X-SyncMaster-TS');
-                $body = file_get_contents('php://input');
-                $authOk = $sig && $ts && $body !== false
-                    && SyncMasterApi::verifySignature($body, $ts, $sig, $connection['api_secret']);
-            }
-        }
-
+        // Ping no requiere autenticación — solo confirma que el módulo está activo y accesible.
         $this->jsonExit(200, [
-            'status'        => 'ok',
-            'ps_version'    => _PS_VERSION_,
-            'module'        => 'syncmaster',
-            'role'          => Configuration::get('SYNCMASTER_ROLE'),
-            'authenticated' => $authOk,
-            'ts'            => time(),
+            'status'     => 'ok',
+            'ps_version' => _PS_VERSION_,
+            'module'     => 'syncmaster',
+            'role'       => Configuration::get('SYNCMASTER_ROLE'),
+            'ts'         => time(),
         ]);
     }
 
