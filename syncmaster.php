@@ -796,15 +796,20 @@ class SyncMaster extends Module
             ) ?: [];
         }
 
+        $storeRole = Configuration::get('SYNCMASTER_ROLE') ?: self::ROLE_MASTER;
+        $isMaster  = in_array($storeRole, [self::ROLE_MASTER, self::ROLE_BOTH]);
+
         return $this->smFetch('connection_form.tpl', [
-            'connection'      => $connection,
-            'new_credentials' => !$idConn ? SyncMasterApi::generateCredentials() : [],
-            'is_edit'         => (bool)$idConn,
-            'form_action'     => $listUrl . '&sm_action=save'
+            'connection'       => $connection,
+            'new_credentials'  => (!$idConn && $isMaster) ? SyncMasterApi::generateCredentials() : [],
+            'is_edit'          => (bool)$idConn,
+            'store_role'       => $storeRole,
+            'is_master'        => $isMaster,
+            'form_action'      => $listUrl . '&sm_action=save'
                 . ($idConn ? '&id_connection=' . $idConn : ''),
-            'link_list'       => $listUrl,
-            'errors'          => $errors,
-            'role_options'    => [
+            'link_list'        => $listUrl,
+            'errors'           => $errors,
+            'role_options'     => [
                 ['value' => 'free',   'label' => $this->l('Free ID — La hija puede tener su propio catálogo')],
                 ['value' => 'shared', 'label' => $this->l('Shared ID — Réplica exacta (mismo ID de producto)')],
             ],
