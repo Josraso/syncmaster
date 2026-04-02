@@ -620,7 +620,7 @@ class SyncMasterImporter
         }
 
         // Mover a la carpeta correcta
-        $destDir  = _PS_PROD_IMG_DIR_ . Image::getImgFolderStatic($image->id);
+        $destDir  = SyncMasterVersionCompat::getProdImgDir() . Image::getImgFolderStatic($image->id);
         if (!is_dir($destDir)) {
             mkdir($destDir, 0775, true);
         }

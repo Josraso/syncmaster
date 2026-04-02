@@ -175,13 +175,7 @@ class SyncMasterVersionCompat
             return null;
         }
 
-        if (self::isPS16()) {
-            // PS 1.6: /img/p/1/2/3/123.jpg (carpetas por dígito)
-            $imagePath = _PS_PROD_IMG_DIR_ . $image->getExistingImgPath() . '.jpg';
-        } else {
-            // PS 1.7+: misma estructura pero puede incluir WebP en PS8+
-            $imagePath = _PS_PROD_IMG_DIR_ . $image->getExistingImgPath() . '.jpg';
-        }
+        $imagePath = self::getProdImgDir() . $image->getExistingImgPath() . '.jpg';
 
         return file_exists($imagePath) ? $imagePath : null;
     }
@@ -412,62 +406,79 @@ class SyncMasterVersionCompat
     }
 
     /**
-     * Crea una combinación de producto de forma compatible entre PS 1.6 y 1.7+.
-     *
-     * PS 1.6: addProductAttribute($price, $weight, $unit_price_impact, $ecotax,
-     *             $quantity, $images, $reference, $ean13='', $default=false,
-     *             $location=null, $upc='', $minimal_quantity=1, $available_date=null,
-     *             $update_all_fields=true)   → 14 params
-     *
-     * PS 1.7+: addProductAttribute($price, $weight, $unit_price_impact, $ecotax,
-     *              $images, $reference='', $ean13='', $default=false,
-     *              $location=null, $upc='', ...)   → sin $quantity
+     * Crea una combinación de producto usando SQL directo para evitar diferencias
+     * de firma de addProductAttribute() entre PS 1.6 / 1.7 / 8 / 9.
      *
      * @param  Product $product
-     * @param  array   $comb   datos de la combinación (price, weight, reference, ean13, upc, is_default, quantity)
+     * @param  array   $comb   (price, weight, reference, ean13, upc, is_default, quantity)
      * @return int     id_product_attribute creado, 0 si error
      */
     public static function addProductAttributeCompat($product, array $comb)
     {
+        $db        = Db::getInstance();
+        $idProduct = (int)$product->id;
         $price     = (float)(isset($comb['price'])     ? $comb['price']     : 0);
         $weight    = (float)(isset($comb['weight'])    ? $comb['weight']    : 0);
-        $reference = isset($comb['reference'])  ? $comb['reference']  : '';
-        $ean13     = isset($comb['ean13'])       ? $comb['ean13']      : '';
-        $upc       = isset($comb['upc'])         ? $comb['upc']        : '';
-        $default   = !empty($comb['is_default']);
+        $reference = isset($comb['reference']) ? pSQL($comb['reference']) : '';
+        $ean13     = isset($comb['ean13'])     ? pSQL($comb['ean13'])     : '';
+        $upc       = isset($comb['upc'])       ? pSQL($comb['upc'])       : '';
+        $default   = !empty($comb['is_default']) ? 1 : 0;
         $quantity  = (int)(isset($comb['quantity']) ? $comb['quantity'] : 0);
+        $idShop    = self::getShopId();
+        $prefix    = _DB_PREFIX_;
 
-        if (self::isPS16()) {
-            // PS 1.6 needs $quantity and $images before $reference
-            return (int)$product->addProductAttribute(
-                $price, $weight,
-                0,        // unit_price_impact
-                0,        // ecotax
-                $quantity,
-                [],       // images — handled separately
-                $reference,
-                $ean13,
-                $default,
-                null,     // location
-                $upc,
-                1,        // minimal_quantity
-                null,     // available_date
-                true      // update_all_fields
-            );
+        // Detectar si la tabla tiene columna 'quantity' (PS 1.6) o no (PS 1.7+)
+        $hasQtyCol = (bool)$db->getValue(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME   = '{$prefix}product_attribute'
+               AND COLUMN_NAME  = 'quantity'"
+        );
+
+        $row = [
+            'id_product'         => $idProduct,
+            'reference'          => $reference,
+            'ean13'              => $ean13,
+            'upc'                => $upc,
+            'location'           => '',
+            'unit_price_impact'  => 0,
+            'ecotax'             => 0,
+            'weight'             => $weight,
+            'default_on'         => $default,
+            'price'              => $price,
+            'minimal_quantity'   => 1,
+        ];
+        if ($hasQtyCol) {
+            $row['quantity'] = $quantity;
         }
 
-        // PS 1.7 / 1.8 / 8 / 9 — no $quantity param (stock via StockAvailable)
-        return (int)$product->addProductAttribute(
-            $price, $weight,
-            0,        // unit_price_impact
-            0,        // ecotax
-            [],       // images — handled separately
-            $reference,
-            $ean13,
-            $default,
-            null,     // location
-            $upc
-        );
+        if (!$db->insert('product_attribute', $row)) {
+            return 0;
+        }
+        $idPA = (int)$db->Insert_ID();
+
+        // product_attribute_shop (multi-shop)
+        $shopRow           = $row;
+        $shopRow['id_product_attribute'] = $idPA;
+        $shopRow['id_shop'] = $idShop;
+        $db->insert('product_attribute_shop', $shopRow, false, false, Db::INSERT_IGNORE);
+
+        return $idPA;
+    }
+
+    /**
+     * Devuelve la ruta al directorio de imágenes de producto.
+     * _PS_PROD_IMG_DIR_ no está definida en PS 9 fuera del contexto normal.
+     *
+     * @return string  ruta absoluta con slash al final
+     */
+    public static function getProdImgDir()
+    {
+        if (defined('_PS_PROD_IMG_DIR_')) {
+            return _PS_PROD_IMG_DIR_;
+        }
+        // Fallback para PS 8 / 9 donde la constante puede no estar definida
+        return _PS_IMG_DIR_ . 'p' . DIRECTORY_SEPARATOR;
     }
 
     /**
