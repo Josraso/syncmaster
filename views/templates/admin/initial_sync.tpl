@@ -110,14 +110,14 @@
                             <td><small>{$job.started_at|default:'—'}</small></td>
                             <td>
                                 {if $job.status == 'running'}
-                                    <button class="btn btn-xs btn-warning sm-process-btn"
+                                    <button type="button" class="btn btn-xs btn-warning sm-process-btn"
                                             data-job="{$job.id_job}">
                                         ▶ Procesar
                                     </button>
                                     <a href="{$ajax_url}&sm_action=pause&id_job={$job.id_job}"
                                        class="btn btn-xs btn-default">⏸ Pausar</a>
                                 {elseif $job.status == 'paused'}
-                                    <button class="btn btn-xs btn-primary sm-process-btn"
+                                    <button type="button" class="btn btn-xs btn-primary sm-process-btn"
                                             data-job="{$job.id_job}">
                                         ▶ Reanudar
                                     </button>

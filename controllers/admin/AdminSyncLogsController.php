@@ -16,7 +16,7 @@ class AdminSyncLogsController extends AdminSyncBaseController
         parent::initContent();
 
         $idConn = (int)Tools::getValue('id_connection', 0);
-        $status = Tools::getValue('filter_status', '');
+        $status = Tools::getValue('status', '');
         $action = Tools::getValue('sm_action', '');
 
         switch ($action) {

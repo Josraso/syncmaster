@@ -40,7 +40,7 @@
             <div class="sm-stat-label">Fallidos</div>
         </div>
         <div class="sm-stat sm-stat-action">
-            <button class="btn btn-default btn-sm" id="sm-run-queue">
+            <button type="button" class="btn btn-default btn-sm" id="sm-run-queue">
                 ▶ Procesar cola ahora
             </button>
             <div class="sm-stat-label">Manual</div>

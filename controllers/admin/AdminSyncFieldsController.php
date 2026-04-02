@@ -23,6 +23,11 @@ class AdminSyncFieldsController extends AdminSyncBaseController
             return;
         }
 
+        $this->smView($idConn);
+    }
+
+    private function smView($idConn)
+    {
         $connections = Db::getInstance()->executeS(
             'SELECT id_connection, name FROM `' . _DB_PREFIX_ . 'sync_connections`
              WHERE active = 1 ORDER BY name ASC'
@@ -65,7 +70,7 @@ class AdminSyncFieldsController extends AdminSyncBaseController
     {
         if (!$idConn) {
             $this->errors[] = $this->l('Conexión no válida.');
-            $this->initContent();
+            $this->smView(0);
             return;
         }
 

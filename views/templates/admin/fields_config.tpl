@@ -61,7 +61,7 @@
                     <tbody>
                     {foreach $group.fields as $field}
                         {assign var=cfg value=$saved_config[$field]|default:null}
-                        {assign var=is_price value=in_array($field, ['price','wholesale_price'])}
+                        {assign var=is_price value=($field == 'price' || $field == 'wholesale_price')}
                         <tr class="sm-field-row" data-group="{$group_key}">
                             <td>
                                 <input type="checkbox" name="field_{$field}" value="1"

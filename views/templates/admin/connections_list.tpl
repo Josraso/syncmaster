@@ -52,7 +52,7 @@
                                class="btn btn-default btn-xs" title="Editar">
                                 <i class="icon-pencil"></i>
                             </a>
-                            <button class="btn btn-default btn-xs sm-ping-btn"
+                            <button type="button" class="btn btn-default btn-xs sm-ping-btn"
                                     data-id="{$conn.id_connection}" title="Test ping">
                                 <i class="icon-signal"></i>
                             </button>
