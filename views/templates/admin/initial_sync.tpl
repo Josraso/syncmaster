@@ -111,14 +111,16 @@
                             <td>
                                 {if $job.status == 'running'}
                                     <button type="button" class="btn btn-xs btn-warning sm-process-btn"
-                                            data-job="{$job.id_job}">
+                                            data-job="{$job.id_job}"
+                                            data-sync-url="{$ajax_url}">
                                         ▶ Procesar
                                     </button>
                                     <a href="{$ajax_url}&sm_action=pause&id_job={$job.id_job}"
                                        class="btn btn-xs btn-default">⏸ Pausar</a>
                                 {elseif $job.status == 'paused'}
                                     <button type="button" class="btn btn-xs btn-primary sm-process-btn"
-                                            data-job="{$job.id_job}">
+                                            data-job="{$job.id_job}"
+                                            data-sync-url="{$ajax_url}">
                                         ▶ Reanudar
                                     </button>
                                     <a href="{$ajax_url}&sm_action=cancel&id_job={$job.id_job}"
@@ -144,52 +146,3 @@
     </div>
 </div>
 
-<script>
-var smSyncUrl = '{$ajax_url}';
-{literal}
-document.querySelectorAll('.sm-process-btn').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-        var jobId   = this.dataset.job;
-        var btn     = this;
-        var row     = btn.closest('tr');
-        btn.disabled = true;
-        btn.textContent = 'Procesando...';
-
-        function processBatch() {
-            fetch(smSyncUrl + '&action=nextBatch&ajax=1&id_job=' + jobId, {
-                method: 'POST',
-                headers: {'X-Requested-With': 'XMLHttpRequest'}
-            })
-            .then(function(r){ return r.json(); })
-            .then(function(data) {
-                if (data.done) {
-                    btn.textContent = data.progress === 100 ? '✓ Completado' : '⏸ Pausado';
-                    setTimeout(function(){ location.reload(); }, 1500);
-                } else if (data.paused) {
-                    btn.textContent = '⏸ Pausado — Error';
-                    setTimeout(function(){ location.reload(); }, 1500);
-                } else {
-                    // Actualizar barra de progreso
-                    var bar = row.querySelector('.progress-bar');
-                    if (bar) {
-                        bar.style.width = data.progress + '%';
-                        bar.textContent = data.progress + '%';
-                    }
-                    btn.textContent = 'Lote ' + data.batch + ' (' + data.progress + '%) ▶';
-                    btn.disabled = false;
-                    // No auto-continúa: el usuario controla lote a lote
-                    // Para auto-continuar descomenta la línea siguiente:
-                    // setTimeout(processBatch, 200);
-                }
-            })
-            .catch(function(e) {
-                btn.disabled = false;
-                btn.textContent = '▶ Reintentar';
-                alert('Error: ' + e.message);
-            });
-        }
-        processBatch();
-    });
-});
-{/literal}
-</script>

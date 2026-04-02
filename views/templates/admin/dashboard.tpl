@@ -40,7 +40,8 @@
             <div class="sm-stat-label">Fallidos</div>
         </div>
         <div class="sm-stat sm-stat-action">
-            <button type="button" class="btn btn-default btn-sm" id="sm-run-queue">
+            <button type="button" class="btn btn-default btn-sm" id="sm-run-queue"
+                    data-ajax-url="{$syncmaster_ajax_url}">
                 ▶ Procesar cola ahora
             </button>
             <div class="sm-stat-label">Manual</div>
@@ -157,6 +158,39 @@
         </div>
     </div>
 
+    {* Configuración de la tienda *}
+    <div class="panel panel-default">
+        <div class="panel-heading"><i class="icon-cog"></i> Configuración de la tienda</div>
+        <div class="panel-body">
+            {if $syncmaster_settings_confirm}
+                <div class="alert alert-success">{$syncmaster_settings_confirm|escape:'html'}</div>
+            {/if}
+            <form method="post" class="form-inline">
+                <div class="form-group" style="margin-right:15px">
+                    <label style="margin-right:8px"><strong>Rol de esta tienda:</strong></label>
+                    <select name="syncmaster_role" class="form-control">
+                        <option value="master" {if $syncmaster_role == 'master'}selected{/if}>
+                            Master — esta tienda envía cambios a las hijas
+                        </option>
+                        <option value="slave" {if $syncmaster_role == 'slave'}selected{/if}>
+                            Slave — esta tienda recibe cambios del master
+                        </option>
+                        <option value="both" {if $syncmaster_role == 'both'}selected{/if}>
+                            Master + Slave — envía y recibe
+                        </option>
+                    </select>
+                </div>
+                <button type="submit" name="submitSyncMasterSettings" class="btn btn-primary">
+                    <i class="icon-save"></i> Guardar rol
+                </button>
+            </form>
+            <p class="help-block" style="margin-top:8px;margin-bottom:0">
+                <strong>Master:</strong> instala el módulo aquí y añade la tienda hija en "Gestionar conexiones".<br>
+                <strong>Slave:</strong> instala el módulo en la tienda hija, copia la API Key y Secret que te dio el master.
+            </p>
+        </div>
+    </div>
+
     {* Cron info *}
     <div class="panel panel-default">
         <div class="panel-heading"><i class="icon-time"></i> Configuración del cron</div>
@@ -171,28 +205,3 @@
 
 </div>{* /syncmaster-wrap *}
 
-<script>
-var smAjaxUrl = '{$syncmaster_ajax_url}';
-{literal}
-document.getElementById('sm-run-queue').addEventListener('click', function() {
-    var btn = this;
-    btn.disabled = true;
-    btn.textContent = 'Procesando...';
-    fetch(smAjaxUrl + '&action=runQueue&ajax=1', {
-        method: 'POST',
-        headers: {'X-Requested-With': 'XMLHttpRequest'}
-    })
-    .then(r => r.json())
-    .then(data => {
-        btn.disabled = false;
-        btn.textContent = '▶ Procesar cola ahora';
-        alert('Cola procesada: OK=' + data.stats.processed + ' FAIL=' + data.stats.failed);
-        location.reload();
-    })
-    .catch(() => {
-        btn.disabled = false;
-        btn.textContent = '▶ Procesar cola ahora';
-    });
-});
-{/literal}
-</script>

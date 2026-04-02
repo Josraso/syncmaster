@@ -53,7 +53,9 @@
                                 <i class="icon-pencil"></i>
                             </a>
                             <button type="button" class="btn btn-default btn-xs sm-ping-btn"
-                                    data-id="{$conn.id_connection}" title="Test ping">
+                                    data-id="{$conn.id_connection}"
+                                    data-conn-url="{$current_url}"
+                                    title="Test ping">
                                 <i class="icon-signal"></i>
                             </button>
                             <a href="{$current_url}&sm_action=toggle&id_connection={$conn.id_connection}"
@@ -76,37 +78,3 @@
 
 <div id="sm-ping-result" class="alert" style="display:none;margin-top:10px"></div>
 
-<script>
-var smConnUrl = '{$current_url}';
-{literal}
-document.querySelectorAll('.sm-ping-btn').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-        var id  = this.dataset.id;
-        var res = document.getElementById('sm-ping-result');
-        res.className = 'alert alert-info';
-        res.style.display = 'block';
-        res.textContent = 'Comprobando conexión...';
-
-        fetch(smConnUrl + '&sm_action=ping&id_connection=' + id + '&ajax=1&action=ping', {
-            method: 'POST',
-            headers: {'X-Requested-With': 'XMLHttpRequest'}
-        })
-        .then(r => r.json())
-        .then(data => {
-            if (data.success) {
-                res.className = 'alert alert-success';
-                res.textContent = '✓ Conexión OK — PS ' + (data.response && data.response.ps_version || '?')
-                    + ' — ' + data.latency_ms + 'ms';
-            } else {
-                res.className = 'alert alert-danger';
-                res.textContent = '✗ Error: ' + (data.error || 'Sin respuesta');
-            }
-        })
-        .catch(function(e) {
-            res.className = 'alert alert-danger';
-            res.textContent = '✗ Error de red: ' + e.message;
-        });
-    });
-});
-{/literal}
-</script>

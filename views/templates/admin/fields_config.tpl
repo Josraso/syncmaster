@@ -128,32 +128,3 @@
     {/if}
 </div>
 
-<script>
-{literal}
-// Mostrar/ocultar valor de precio según regla seleccionada
-document.querySelectorAll('.sm-price-rule').forEach(function(sel) {
-    sel.addEventListener('change', function() {
-        var wrap = document.querySelector('.sm-price-value-wrap[data-field="' + this.dataset.field + '"]');
-        if (wrap) wrap.style.display = this.value === 'none' ? 'none' : '';
-    });
-});
-
-// Marcar/desmarcar todos
-document.getElementById('sm-check-all') && document.getElementById('sm-check-all').addEventListener('click', function() {
-    document.querySelectorAll('.sm-field-check').forEach(function(c){ c.checked = true; });
-});
-document.getElementById('sm-uncheck-all') && document.getElementById('sm-uncheck-all').addEventListener('click', function() {
-    document.querySelectorAll('.sm-field-check').forEach(function(c){ c.checked = false; });
-});
-
-// Marcar grupo
-document.querySelectorAll('.sm-group-toggle').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-        var group = this.dataset.group;
-        var checks = document.querySelectorAll('.sm-field-row[data-group="' + group + '"] .sm-field-check');
-        var allChecked = Array.from(checks).every(function(c){ return c.checked; });
-        checks.forEach(function(c){ c.checked = !allChecked; });
-    });
-});
-{/literal}
-</script>

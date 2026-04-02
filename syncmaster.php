@@ -613,6 +613,17 @@ class SyncMaster extends Module
             }
         }
 
+        // Guardar configuración de rol si se envió el formulario
+        $settingsConfirm = '';
+        if (Tools::isSubmit('submitSyncMasterSettings')) {
+            $role = Tools::getValue('syncmaster_role', 'master');
+            if (!in_array($role, [self::ROLE_MASTER, self::ROLE_SLAVE, self::ROLE_BOTH])) {
+                $role = self::ROLE_MASTER;
+            }
+            Configuration::updateValue('SYNCMASTER_ROLE', $role);
+            $settingsConfirm = $this->l('Rol guardado correctamente.');
+        }
+
         // Forzar carga de CSS/JS en el contexto de "Configurar" (controller = AdminModules)
         // El hook displayBackOfficeHeader no se dispara aquí porque el controller no es AdminSync*
         $this->context->controller->addCSS($this->_path . 'views/css/syncmaster-admin.css');
@@ -645,21 +656,22 @@ class SyncMaster extends Module
 
         $this->context->smarty->addTemplateDir($tplDir);
         $this->context->smarty->assign([
-            'syncmaster_connections'    => $connections,
-            'syncmaster_queue_stats'    => $queueStats,
-            'syncmaster_recent_errors'  => $recentErrors,
-            'syncmaster_recent_success' => [],
-            'syncmaster_cron_url'       => $cronUrl,
-            'syncmaster_role'           => Configuration::get('SYNCMASTER_ROLE'),
-            'syncmaster_ping_results'   => [],
-            'syncmaster_ps_version'     => _PS_VERSION_,
-            'syncmaster_module_version' => $this->version,
-            'syncmaster_ps_root_dir'    => _PS_ROOT_DIR_,
-            'syncmaster_ajax_url'       => $links['dashboard'],
-            'link_connections'          => $links['connections'],
-            'link_fields'               => $links['fields'],
-            'link_sync'                 => $links['sync'],
-            'link_logs'                 => $links['logs'],
+            'syncmaster_connections'     => $connections,
+            'syncmaster_queue_stats'     => $queueStats,
+            'syncmaster_recent_errors'   => $recentErrors,
+            'syncmaster_recent_success'  => [],
+            'syncmaster_cron_url'        => $cronUrl,
+            'syncmaster_role'            => Configuration::get('SYNCMASTER_ROLE'),
+            'syncmaster_ping_results'    => [],
+            'syncmaster_ps_version'      => _PS_VERSION_,
+            'syncmaster_module_version'  => $this->version,
+            'syncmaster_ps_root_dir'     => _PS_ROOT_DIR_,
+            'syncmaster_ajax_url'        => $links['dashboard'],
+            'syncmaster_settings_confirm' => $settingsConfirm,
+            'link_connections'           => $links['connections'],
+            'link_fields'                => $links['fields'],
+            'link_sync'                  => $links['sync'],
+            'link_logs'                  => $links['logs'],
         ]);
 
         return $this->context->smarty->fetch($tplPath);
