@@ -190,13 +190,25 @@ class SyncMasterInitialJob
         $itemsSent  = count($items);
 
         // Leer el ok/fail real que devuelve el slave (207 = parcial, 200 = todo ok)
+        $resp       = [];
+        $respErrors = [];
         if ($result['success']) {
-            $resp      = isset($result['response']) ? $result['response'] : [];
-            $itemsOk   = isset($resp['ok'])     ? (int)$resp['ok']     : $itemsSent;
-            $itemsFail = isset($resp['failed']) ? (int)$resp['failed'] : 0;
+            $resp       = isset($result['response']) ? $result['response'] : [];
+            $itemsOk    = isset($resp['ok'])     ? (int)$resp['ok']     : $itemsSent;
+            $itemsFail  = isset($resp['failed']) ? (int)$resp['failed'] : 0;
+            $respErrors = isset($resp['errors']) ? (array)$resp['errors'] : [];
         } else {
             $itemsOk   = 0;
             $itemsFail = $itemsSent;
+        }
+
+        // Construir mensaje de error para el log
+        if (!$result['success']) {
+            $batchErrorMsg = isset($result['error']) ? $result['error'] : 'Error desconocido';
+        } elseif (!empty($respErrors)) {
+            $batchErrorMsg = implode(' | ', array_slice($respErrors, 0, 5));
+        } else {
+            $batchErrorMsg = null;
         }
 
         // Log del lote
@@ -209,9 +221,9 @@ class SyncMasterInitialJob
             'items_sent'   => $itemsSent,
             'items_ok'     => $itemsOk,
             'items_failed' => $itemsFail,
-            'status'       => $result['success'] ? 'done' : 'failed',
+            'status'       => ($result['success'] && $itemsFail === 0) ? 'done' : ($result['success'] ? 'partial' : 'failed'),
             'duration_ms'  => $durationMs,
-            'error_msg'    => $result['success'] ? null : pSQL(substr((isset($result['error']) ? $result['error'] : ''), 0, 500)),
+            'error_msg'    => $batchErrorMsg ? pSQL(substr($batchErrorMsg, 0, 1000)) : null,
             'date_add'     => date('Y-m-d H:i:s'),
         ]);
 

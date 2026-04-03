@@ -346,7 +346,10 @@ class SyncmasterApiModuleFrontController extends ModuleFrontController
             null,
             'batch_' . $batchNum,
             $results['failed'] === 0 ? 'success' : ($results['ok'] > 0 ? 'warning' : 'error'),
-            'Lote ' . $batchNum . ': OK=' . $results['ok'] . ' FAIL=' . $results['failed'],
+            'Lote ' . $batchNum . ': OK=' . $results['ok'] . ' FAIL=' . $results['failed']
+                . ($results['failed'] > 0 && !empty($results['errors'])
+                    ? ' | ' . implode(' / ', array_slice($results['errors'], 0, 3))
+                    : ''),
             $durationMs
         );
 

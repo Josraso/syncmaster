@@ -100,7 +100,21 @@
                                 {/if}
                             </td>
                             <td><small>{if $log.duration_ms}{$log.duration_ms}ms{else}—{/if}</small></td>
-                            <td><small class="text-muted">{$log.message|truncate:80|escape:'html'}</small></td>
+                            <td>
+                                {if $log.message|strlen > 80}
+                                    <small class="text-muted sm-log-msg" style="cursor:pointer"
+                                           title="{$log.message|escape:'html'}"
+                                           onclick="var f=this.nextElementSibling;this.style.display='none';f.style.display='block'">
+                                        {$log.message|truncate:80|escape:'html'} <span style="color:#aaa">[+]</span>
+                                    </small>
+                                    <small class="text-muted sm-log-msg-full" style="display:none;word-break:break-word;white-space:pre-wrap"
+                                           onclick="var p=this.previousElementSibling;this.style.display='none';p.style.display='block'">
+                                        {$log.message|escape:'html'}
+                                    </small>
+                                {else}
+                                    <small class="text-muted">{$log.message|escape:'html'}</small>
+                                {/if}
+                            </td>
                         </tr>
                     {/foreach}
                     </tbody>
