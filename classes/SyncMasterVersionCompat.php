@@ -308,14 +308,20 @@ class SyncMasterVersionCompat
             'reference'          => pSQL(isset($comb['reference']) ? $comb['reference'] : ''),
             'ean13'              => pSQL(isset($comb['ean13'])     ? $comb['ean13']     : ''),
             'upc'                => pSQL(isset($comb['upc'])       ? $comb['upc']       : ''),
-            'default_on'         => !empty($comb['is_default']) ? 1 : null,
         ];
+        // default_on: 1 para default, NULL para el resto (UNIQUE KEY — ver addProductAttributeCompat)
+        // Se actualiza via SQL directo para poder escribir NULL sin null_values=true
+        // (que en PS trata '' igual que null y rompería isbn/mpn/etc.)
+        $defaultVal = !empty($comb['is_default']) ? '1' : 'NULL';
+        $wherePA    = 'id_product_attribute = ' . (int)$idProductAttribute;
+        $whereShop  = $wherePA . ' AND id_shop = ' . (int)$idShop;
 
-        // null_values=true para que default_on=null se escriba como NULL en SQL
-        $db->update('product_attribute',      $data, 'id_product_attribute = ' . (int)$idProductAttribute, 0, true);
-        $db->update('product_attribute_shop', $data,
-            'id_product_attribute = ' . (int)$idProductAttribute . ' AND id_shop = ' . (int)$idShop, 0, true
-        );
+        $db->update('product_attribute',      $data, $wherePA);
+        $db->update('product_attribute_shop', $data, $whereShop);
+
+        // Actualizar default_on por separado con SQL crudo para escribir NULL correctamente
+        $db->execute('UPDATE `' . _DB_PREFIX_ . 'product_attribute` SET `default_on` = ' . $defaultVal . ' WHERE ' . $wherePA);
+        $db->execute('UPDATE `' . _DB_PREFIX_ . 'product_attribute_shop` SET `default_on` = ' . $defaultVal . ' WHERE ' . $whereShop);
     }
 
     // =========================================================================
@@ -556,7 +562,10 @@ class SyncMasterVersionCompat
         // PS usa NULL (no 0) para combinaciones no-default:
         // product_attribute y product_attribute_shop tienen UNIQUE KEY (id_product, default_on)
         // → múltiples NULL están permitidos, múltiples 0 violan la constraint (error 1062)
-        $default   = !empty($comb['is_default']) ? 1 : null;
+        // NOTA: NO usamos null_values=true en Db::insert porque en PS eso trata '' igual que null,
+        // lo que pondría isbn/mpn/etc. como NULL en lugar de '' (rompe PS8 CombinationDetails::__construct)
+        // Solución: excluimos default_on del array para no-default (el campo tiene DEFAULT NULL en schema)
+        $isDefault = !empty($comb['is_default']);
         $quantity  = (int)(isset($comb['quantity']) ? $comb['quantity'] : 0);
         $idShop    = self::getShopId();
         $paCols    = self::getTableColumns(_DB_PREFIX_ . 'product_attribute');
@@ -574,7 +583,6 @@ class SyncMasterVersionCompat
             'unit_price_impact'   => 0,
             'ecotax'              => 0,
             'weight'              => $weight,
-            'default_on'          => $default,
             'price'               => $price,
             'minimal_quantity'    => 1,
             'low_stock_threshold' => 0,    // PS 1.7.7+
@@ -583,12 +591,16 @@ class SyncMasterVersionCompat
             'wholesale_price'     => 0,
             'quantity'            => $quantity,  // solo PS 1.6
         ];
+        // Solo incluir default_on cuando es 1 — las no-default omiten la clave para que
+        // la BD use DEFAULT NULL, evitando el 1062 en UNIQUE KEY (id_product, default_on)
+        if ($isDefault) {
+            $allData['default_on'] = 1;
+        }
 
         // Solo incluir columnas que existen en esta instalación
         $row = array_intersect_key($allData, array_flip($paCols));
 
-        // null_values=true para que 'default_on'=>null se escriba como NULL en SQL
-        if (!$db->insert('product_attribute', $row, true)) {
+        if (!$db->insert('product_attribute', $row)) {
             return 0;
         }
         $idPA = (int)$db->Insert_ID();
@@ -602,8 +614,7 @@ class SyncMasterVersionCompat
         $shopAllData['id_product_attribute'] = $idPA;
         $shopAllData['id_shop']              = $idShop;
         $shopRow = array_intersect_key($shopAllData, array_flip($shopCols));
-        // null_values=true + INSERT_IGNORE para que default_on=null se escriba como NULL
-        $db->insert('product_attribute_shop', $shopRow, true, false, Db::INSERT_IGNORE);
+        $db->insert('product_attribute_shop', $shopRow, false, false, Db::INSERT_IGNORE);
 
         return $idPA;
     }
@@ -655,6 +666,22 @@ class SyncMasterVersionCompat
      */
     public static function postProcessCombinations($product)
     {
+        // Reparar columnas de texto que pueden haber quedado como NULL por imports anteriores.
+        // PS 8 CombinationDetails::__construct() requiere string, no null, en isbn/mpn/etc.
+        $paCols = self::getTableColumns(_DB_PREFIX_ . 'product_attribute');
+        $fixCols = [];
+        foreach (['isbn', 'mpn', 'supplier_reference', 'location', 'ean13', 'upc', 'reference'] as $col) {
+            if (in_array($col, $paCols)) {
+                $fixCols[] = '`' . $col . '` = COALESCE(`' . $col . '`, \'\')';
+            }
+        }
+        if ($fixCols) {
+            Db::getInstance()->execute(
+                'UPDATE `' . _DB_PREFIX_ . 'product_attribute` SET ' . implode(', ', $fixCols)
+                . ' WHERE id_product = ' . (int)$product->id
+            );
+        }
+
         $product->checkDefaultAttributes();
         if (method_exists('StockAvailable', 'postProcess')) {
             StockAvailable::postProcess($product);
