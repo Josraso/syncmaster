@@ -73,24 +73,12 @@ foreach ([
 unset($_pCron, $_cronTable, $_cronCols, $_cronExisting, $_cronRows, $_col, $_sql, $_r);
 
 // =========================================================================
-// MUTEX: evitar ejecuciones paralelas del cron
+// MUTEX ligero vía BD: evitar doble proceso del mismo job
+// (flock() no es fiable en todos los hostings; usamos last_activity en DB)
 // =========================================================================
-$_lockFile = dirname(__FILE__) . '/retry_queue.lock';
-$_lock     = fopen($_lockFile, 'c');
-if (!$_lock || !flock($_lock, LOCK_EX | LOCK_NB)) {
-    // Ya hay una instancia corriendo
-    if (php_sapi_name() !== 'cli') {
-        header('Content-Type: text/plain');
-        echo date('Y-m-d H:i:s') . ' | Cron already running, skipping.' . PHP_EOL;
-    }
-    if ($_lock) { fclose($_lock); }
-    exit;
-}
-register_shutdown_function(function() use ($_lock, $_lockFile) {
-    flock($_lock, LOCK_UN);
-    fclose($_lock);
-    @unlink($_lockFile);
-});
+// Nada que hacer aquí — el control de concurrencia se hace dentro de
+// processNextBatch() comparando last_activity (< 30s = otro proceso activo).
+
 
 // =========================================================================
 // 1. PROCESAR COLA DE REINTENTOS (eventos en tiempo real)
@@ -115,11 +103,12 @@ if (in_array($role, ['master', 'both'])) {
         require_once _PS_MODULE_DIR_ . 'syncmaster/classes/SyncMasterInitialJob.php';
     }
 
-    // El flock() de arriba garantiza que solo corre una instancia del cron,
-    // así que no hay riesgo de doble proceso — recogemos cualquier job en running.
+    // Recogemos jobs en running. Si last_activity fue hace < 30s otro proceso
+    // acaba de tocarlos — los saltamos para evitar proceso doble.
     $runningJobs = Db::getInstance()->executeS(
         'SELECT id_job FROM `' . _DB_PREFIX_ . 'sync_initial_job`
          WHERE status = \'running\'
+           AND (last_activity IS NULL OR last_activity <= DATE_SUB(NOW(), INTERVAL 30 SECOND))
          ORDER BY last_activity ASC'
     ) ?: [];
 
@@ -154,12 +143,21 @@ if (in_array($role, ['master', 'both'])) {
 // =========================================================================
 // SALIDA
 // =========================================================================
-$batchCount = count($initialResult);
+$batchCount  = count($initialResult);
+$batchErrors = array_filter($initialResult, function($r){ return !empty($r['error']); });
+
+// Contar jobs running en BD para debug
+$totalRunning = (int)Db::getInstance()->getValue(
+    'SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'sync_initial_job` WHERE status = \'running\''
+);
+
 $message = date('Y-m-d H:i:s') . ' | Queue: '
     . 'OK=' . $stats['processed']
     . ' FAIL=' . $stats['failed']
     . ' SKIP=' . $stats['skipped']
-    . ' | InitialSync batches: ' . $batchCount;
+    . ' | InitialSync: jobs_running=' . $totalRunning
+    . ' batches_processed=' . $batchCount
+    . ($batchErrors ? ' errors=' . count($batchErrors) : '');
 
 if (php_sapi_name() === 'cli') {
     echo $message . PHP_EOL;

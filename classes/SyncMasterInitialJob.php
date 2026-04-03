@@ -221,7 +221,7 @@ class SyncMasterInitialJob
             'items_sent'   => $itemsSent,
             'items_ok'     => $itemsOk,
             'items_failed' => $itemsFail,
-            'status'       => ($result['success'] && $itemsFail === 0) ? 'done' : ($result['success'] ? 'partial' : 'failed'),
+            'status'       => $result['success'] ? 'done' : 'failed',
             'duration_ms'  => $durationMs,
             'error_msg'    => $batchErrorMsg ? pSQL(substr($batchErrorMsg, 0, 1000)) : null,
             'date_add'     => date('Y-m-d H:i:s'),
