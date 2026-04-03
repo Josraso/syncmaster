@@ -639,6 +639,15 @@ class SyncMasterImporter
             }
         } else {
             $category = new Category($localId);
+            if (!Validate::isLoadedObject($category)) {
+                // La categoría fue eliminada localmente → recrear
+                $category = new Category();
+                if ($this->idMode === 'shared') {
+                    $category->force_id = true;
+                    $category->id       = $masterId;
+                }
+                $isNew = true;
+            }
         }
 
         // Resolver ID del padre
