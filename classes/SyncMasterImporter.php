@@ -94,11 +94,15 @@ class SyncMasterImporter
         $isNew     = ($localId === 0);
 
         if ($action === 'delete') {
-            // Leer delete_on_slave de la conexión (por defecto 1 si no existe)
-            $deleteOnSlave = (int)Db::getInstance()->getValue(
+            // Leer delete_on_slave de la conexión (por defecto 1 si la columna no existe aún)
+            $connRow = Db::getInstance()->getRow(
                 'SELECT delete_on_slave FROM `' . _DB_PREFIX_ . 'sync_connections`
                  WHERE id_connection = ' . (int)$this->idConnection
             );
+            // false = fallo de query (columna ausente) → defecto 1 (sí borrar)
+            $deleteOnSlave = ($connRow !== false && isset($connRow['delete_on_slave']))
+                ? (int)$connRow['delete_on_slave']
+                : 1;
             if (!$deleteOnSlave) {
                 return ['success' => true, 'skipped' => true];
             }

@@ -1,6 +1,6 @@
 <?php
 /**
- * SyncMaster Pro — Cron: procesar cola de reintentos
+ * SyncMaster Pro — Cron: procesar cola de reintentos + jobs de sync inicial
  *
  * Configurar en crontab (cada minuto):
  * * * * * * php /ruta/a/prestashop/modules/syncmaster/cron/retry_queue.php
@@ -39,7 +39,42 @@ if (php_sapi_name() !== 'cli') {
     }
 }
 
-// Procesar la cola (máximo 50 items por ejecución)
+// Asegurarse de que las columnas de migración existen
+// (sin esto, delete_on_slave u otros campos nuevos no funcionarían en cron)
+$_pCron = _DB_PREFIX_;
+foreach ([
+    'sync_connections' => [
+        'delete_on_slave' => "ALTER TABLE `{$_pCron}sync_connections`
+            ADD COLUMN `delete_on_slave` TINYINT(1) NOT NULL DEFAULT 1 AFTER `sync_images`",
+        'category_filter' => "ALTER TABLE `{$_pCron}sync_connections`
+            ADD COLUMN `category_filter` TEXT DEFAULT NULL AFTER `delete_on_slave`",
+    ],
+    'sync_initial_job' => [
+        'skip_images' => "ALTER TABLE `{$_pCron}sync_initial_job`
+            ADD COLUMN `skip_images` TINYINT(1) NOT NULL DEFAULT 0 AFTER `batch_size`",
+    ],
+] as $_cronTable => $_cronCols) {
+    $_cronExisting = [];
+    $_cronRows = Db::getInstance()->executeS(
+        "SELECT COLUMN_NAME FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '" . pSQL($_pCron . $_cronTable) . "'"
+    );
+    if ($_cronRows) {
+        foreach ($_cronRows as $_r) {
+            $_cronExisting[] = strtolower($_r['COLUMN_NAME']);
+        }
+    }
+    foreach ($_cronCols as $_col => $_sql) {
+        if (!in_array(strtolower($_col), $_cronExisting)) {
+            Db::getInstance()->execute($_sql);
+        }
+    }
+}
+unset($_pCron, $_cronTable, $_cronCols, $_cronExisting, $_cronRows, $_col, $_sql, $_r);
+
+// =========================================================================
+// 1. PROCESAR COLA DE REINTENTOS (eventos en tiempo real)
+// =========================================================================
 $stats = SyncMasterQueue::processQueue(50);
 
 // Limpiar items viejos completados
@@ -49,10 +84,55 @@ SyncMasterQueue::cleanup(7);
 $daysLog = (int)Configuration::get('SYNCMASTER_LOG_RETENTION') ?: 30;
 SyncMasterLogger::cleanup($daysLog);
 
+// =========================================================================
+// 2. PROCESAR JOBS DE SYNC INICIAL PENDIENTES (solo en master)
+// =========================================================================
+$role          = Configuration::get('SYNCMASTER_ROLE') ?: 'master';
+$initialResult = [];
+
+if (in_array($role, ['master', 'both'])) {
+    if (!class_exists('SyncMasterInitialJob')) {
+        require_once _PS_MODULE_DIR_ . 'syncmaster/classes/SyncMasterInitialJob.php';
+    }
+
+    $runningJobs = Db::getInstance()->executeS(
+        'SELECT id_job FROM `' . _DB_PREFIX_ . 'sync_initial_job`
+         WHERE status = \'running\'
+         ORDER BY last_activity DESC'
+    ) ?: [];
+
+    $cronStart = time();
+    foreach ($runningJobs as $jobRow) {
+        $idJob = (int)$jobRow['id_job'];
+        // Procesar lotes hasta agotar ~50 segundos del ciclo de cron
+        while ((time() - $cronStart) < 50) {
+            $batchResult = SyncMasterInitialJob::processNextBatch($idJob);
+            $initialResult[] = $batchResult;
+
+            if (!empty($batchResult['done'])) {
+                break; // Job terminado
+            }
+            if (!empty($batchResult['error']) || !empty($batchResult['paused'])) {
+                break; // Error o pausado → siguiente cron lo reintentará
+            }
+        }
+
+        // Si ya llevamos ≥50s en total, parar aunque queden más jobs
+        if ((time() - $cronStart) >= 50) {
+            break;
+        }
+    }
+}
+
+// =========================================================================
+// SALIDA
+// =========================================================================
+$batchCount = count($initialResult);
 $message = date('Y-m-d H:i:s') . ' | Queue: '
     . 'OK=' . $stats['processed']
     . ' FAIL=' . $stats['failed']
-    . ' SKIP=' . $stats['skipped'];
+    . ' SKIP=' . $stats['skipped']
+    . ' | InitialSync batches: ' . $batchCount;
 
 if (php_sapi_name() === 'cli') {
     echo $message . PHP_EOL;
