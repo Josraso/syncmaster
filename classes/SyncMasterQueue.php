@@ -122,8 +122,25 @@ class SyncMasterQueue
     {
         $stats = ['processed' => 0, 'failed' => 0, 'skipped' => 0];
 
+        // Asegurar que delete_on_slave existe (puede que upgradeSchema aún no haya corrido)
+        $p = _DB_PREFIX_;
+        $cols = Db::getInstance()->executeS(
+            'SELECT COLUMN_NAME FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE()
+               AND TABLE_NAME = \'' . pSQL($p . 'sync_connections') . '\'
+               AND COLUMN_NAME = \'delete_on_slave\''
+        );
+        if (empty($cols)) {
+            Db::getInstance()->execute(
+                'ALTER TABLE `' . $p . 'sync_connections`
+                 ADD COLUMN `delete_on_slave` TINYINT(1) NOT NULL DEFAULT 1 AFTER `sync_images`'
+            );
+        }
+        unset($cols, $p);
+
         $items = Db::getInstance()->executeS(
-            'SELECT q.*, c.remote_url, c.api_key, c.api_secret, c.timeout, c.id_mode
+            'SELECT q.*, c.remote_url, c.api_key, c.api_secret, c.timeout, c.id_mode,
+                    COALESCE(c.delete_on_slave, 1) AS delete_on_slave
              FROM `' . _DB_PREFIX_ . 'sync_queue` q
              INNER JOIN `' . _DB_PREFIX_ . 'sync_connections` c
                  ON c.id_connection = q.id_connection AND c.active = 1
@@ -151,6 +168,16 @@ class SyncMasterQueue
                  WHERE id_queue = ' . (int)$item['id_queue']
             );
             if ($check !== self::STATUS_PROCESSING) {
+                $stats['skipped']++;
+                continue;
+            }
+
+            // Si delete_on_slave = 0 para esta conexión, descartar silenciosamente el delete
+            if ($item['action'] === 'delete' && !(int)$item['delete_on_slave']) {
+                Db::getInstance()->update('sync_queue',
+                    ['status' => self::STATUS_DONE, 'date_done' => date('Y-m-d H:i:s')],
+                    'id_queue = ' . (int)$item['id_queue']
+                );
                 $stats['skipped']++;
                 continue;
             }
