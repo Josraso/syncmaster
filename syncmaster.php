@@ -705,26 +705,63 @@ class SyncMaster extends Module
     {
         if ($action === 'confirm') {
             // Verificar token CSRF básico
-            if (Tools::getValue('reset_token') !== $this->getResetToken()) {
-                return '<div class="alert alert-danger">Token inválido. Recarga la página e inténtalo de nuevo.</div>';
+            $submitted = Tools::getValue('reset_token', '');
+            $expected  = $this->getResetToken();
+            if ($submitted !== $expected) {
+                return '<div class="syncmaster-wrap">
+                    <div class="alert alert-danger">
+                        <strong>Token inválido.</strong> Vuelve atrás y vuelve a intentarlo.<br>
+                        <small>Recibido: ' . htmlspecialchars($submitted) . '<br>Esperado: ' . $expected . '</small>
+                    </div>
+                    <a href="' . $baseUrl . '&sm_section=reset" class="btn btn-default">Volver</a>
+                </div>';
             }
 
-            $this->dropTables();
-            $this->deleteConfig();
-            $this->createTables();
-            $this->setDefaultConfig();
+            // Ejecutar reset
+            $errors = [];
+            try { $this->dropTables(); }   catch (Exception $e) { $errors[] = 'dropTables: ' . $e->getMessage(); }
+            try { $this->deleteConfig(); } catch (Exception $e) { $errors[] = 'deleteConfig: ' . $e->getMessage(); }
+            try { $this->createTables(); } catch (Exception $e) { $errors[] = 'createTables: ' . $e->getMessage(); }
+            try { $this->setDefaultConfig(); } catch (Exception $e) { $errors[] = 'setDefaultConfig: ' . $e->getMessage(); }
 
-            // Limpiar caché de configuración de PS si existe
+            // Limpiar caché estático de Configuration (PS 1.6 tiene _CONF estático)
             if (method_exists('Configuration', 'clearConfigurationCacheForAllShops')) {
                 Configuration::clearConfigurationCacheForAllShops();
             }
+            // Forzar limpieza del caché estático en PS 1.6 (sin método dedicado)
+            if (property_exists('Configuration', '_cache')) {
+                $ref = new ReflectionProperty('Configuration', '_cache');
+                $ref->setAccessible(true);
+                $ref->setValue(null, []);
+            }
 
-            // Redirigir al dashboard con mensaje de éxito (PRG)
-            Tools::redirectAdmin($baseUrl . '&sm_reset_done=1');
+            if ($errors) {
+                return '<div class="syncmaster-wrap">
+                    <div class="alert alert-danger">
+                        <strong>Reset completado con errores:</strong><br>' . implode('<br>', array_map('htmlspecialchars', $errors)) . '
+                    </div>
+                    <a href="' . $baseUrl . '" class="btn btn-primary">Ir al Panel</a>
+                </div>';
+            }
+
+            // Mostrar éxito directamente (sin redirect para máxima compatibilidad PS 1.6-9)
+            return '<div class="syncmaster-wrap">
+                <div class="alert alert-success">
+                    <strong><i class="icon-ok"></i> Reset completado.</strong>
+                    Todas las tablas, conexiones y configuración del módulo han sido borradas y recreadas.
+                    El módulo está ahora como recién instalado.
+                </div>
+                <a href="' . $baseUrl . '" class="btn btn-primary btn-lg">
+                    <i class="icon-arrow-left"></i> Ir al Panel
+                </a>
+            </div>';
         }
 
-        // Mostrar confirmación
-        $token = $this->getResetToken();
+        // Mostrar página de confirmación
+        // Usamos GET para el enlace de confirmación para máxima compatibilidad (evita problemas
+        // con POST en PS 1.6 donde los headers ya están enviados antes de getContent())
+        $token      = $this->getResetToken();
+        $confirmUrl = $baseUrl . '&sm_section=reset&sm_action=confirm&reset_token=' . urlencode($token);
         return '<div class="syncmaster-wrap">
             <a href="' . $baseUrl . '" class="btn btn-default btn-sm" style="margin-bottom:8px">
                 <i class="icon-arrow-left"></i> Panel
@@ -736,20 +773,18 @@ class SyncMaster extends Module
                 <br>La configuración quedará como si acabaras de instalar el módulo por primera vez.
                 <br><strong>Esta acción no se puede deshacer.</strong>
             </div>
-            <form method="post" action="' . $baseUrl . '&sm_section=reset&sm_action=confirm">
-                <input type="hidden" name="reset_token" value="' . htmlspecialchars($token) . '">
-                <button type="submit" class="btn btn-danger btn-lg"
-                    onclick="return confirm(\'¿Estás SEGURO? Se borrarán todas las conexiones y datos del módulo.\')">
-                    <i class="icon-trash"></i> Sí, borrar todo y empezar de cero
-                </button>
-                <a href="' . $baseUrl . '" class="btn btn-default btn-lg" style="margin-left:10px">Cancelar</a>
-            </form>
+            <a href="' . htmlspecialchars($confirmUrl) . '" class="btn btn-danger btn-lg"
+               onclick="return confirm(\'¿Estás SEGURO? Se borrarán todas las conexiones y datos del módulo.\')">
+                <i class="icon-trash"></i> Sí, borrar todo y empezar de cero
+            </a>
+            <a href="' . $baseUrl . '" class="btn btn-default btn-lg" style="margin-left:10px">Cancelar</a>
         </div>';
     }
 
     private function getResetToken()
     {
-        return md5('syncmaster_reset_' . $this->context->employee->id . '_' . date('YmdH'));
+        $empId = isset($this->context->employee->id) ? (int)$this->context->employee->id : 0;
+        return md5('syncmaster_reset_' . $empId . '_' . date('YmdH'));
     }
 
     private function smDashboard($baseUrl)
