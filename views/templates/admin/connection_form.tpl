@@ -178,6 +178,27 @@
                     </div>
                 </div>
 
+                {* Filtro de idiomas *}
+                <hr style="margin:20px 0">
+                <h4 style="margin-top:0">Idiomas a sincronizar</h4>
+                <p class="help-block" style="margin-top:0">
+                    Deja todos sin marcar para sincronizar <strong>todos</strong> los idiomas instalados.
+                    Marca solo los idiomas que quieres enviar a esta tienda.
+                </p>
+                <div style="display:flex;flex-wrap:wrap;gap:10px;padding:10px;border:1px solid #ddd;border-radius:4px;background:#fafafa">
+                    {if !empty($all_languages)}
+                        {foreach $all_languages as $lang}
+                        <label style="margin:0;font-weight:normal;cursor:pointer;white-space:nowrap">
+                            <input type="checkbox" name="lang_filter[]" value="{$lang.iso_code}"
+                                {if in_array($lang.iso_code, $selected_lang_isos)}checked{/if}>
+                            {$lang.name|escape:'html'} <span class="label label-default">{$lang.iso_code}</span>
+                        </label>
+                        {/foreach}
+                    {else}
+                        <span class="text-muted">No hay idiomas disponibles.</span>
+                    {/if}
+                </div>
+
                 {* Filtro de categorías — árbol colapsable *}
                 {if !empty($all_categories)}
                 <hr style="margin:20px 0">

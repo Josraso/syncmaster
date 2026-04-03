@@ -709,28 +709,32 @@ class SyncMasterVersionCompat
     }
 
     /**
-     * Idiomas configurados para sync (filtra por SYNCMASTER_SYNC_LANGS si está configurado)
+     * Idiomas a sincronizar para una conexión concreta.
+     * $langFilter: CSV de ISO codes de la columna lang_filter de sync_connections.
+     * Si vacío → todos los idiomas instalados.
      */
-    public static function getSyncLanguages()
+    public static function getSyncLanguages($langFilter = '')
     {
         $all = self::getLanguages();
-        $configured = Configuration::get('SYNCMASTER_SYNC_LANGS');
-        if (!$configured) {
-            return $all; // sin config → todos
+        if (!$langFilter) {
+            return $all;
         }
-        $isos = array_map('trim', explode(',', $configured));
+        $isos = array_filter(array_map('trim', explode(',', $langFilter)));
+        if (empty($isos)) {
+            return $all;
+        }
         return array_values(array_filter($all, function($lang) use ($isos) {
             return in_array($lang['iso_code'], $isos);
         }));
     }
 
     /**
-     * Mapa iso_code → id_lang solo para idiomas de sync configurados
+     * Mapa iso_code → id_lang para los idiomas de sync de una conexión.
      */
-    public static function getSyncLanguageMap()
+    public static function getSyncLanguageMap($langFilter = '')
     {
         $map = [];
-        foreach (self::getSyncLanguages() as $lang) {
+        foreach (self::getSyncLanguages($langFilter) as $lang) {
             $map[$lang['iso_code']] = (int)$lang['id_lang'];
         }
         return $map;

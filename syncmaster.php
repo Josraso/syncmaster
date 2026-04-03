@@ -242,6 +242,8 @@ class SyncMaster extends Module
                     ADD COLUMN `delete_on_slave` TINYINT(1) NOT NULL DEFAULT 1 AFTER `sync_images`",
                 'category_filter' => "ALTER TABLE `{$p}sync_connections`
                     ADD COLUMN `category_filter` TEXT DEFAULT NULL AFTER `delete_on_slave`",
+                'lang_filter'     => "ALTER TABLE `{$p}sync_connections`
+                    ADD COLUMN `lang_filter` VARCHAR(255) DEFAULT NULL AFTER `category_filter`",
             ],
             'sync_initial_job' => [
                 'skip_images' => "ALTER TABLE `{$p}sync_initial_job`
@@ -975,6 +977,7 @@ class SyncMaster extends Module
             'sync_images'    => 1,
             'delete_on_slave'=> 1,
             'category_filter'=> '',
+            'lang_filter'    => '',
             'batch_size'     => 50,
             'batch_delay'    => 1,
             'timeout'        => 30,
@@ -1008,6 +1011,13 @@ class SyncMaster extends Module
             $selectedCategories = array_map('intval', explode(',', $connection['category_filter']));
         }
 
+        $selectedLangIsos = [];
+        if (!empty($connection['lang_filter'])) {
+            $selectedLangIsos = array_filter(array_map('trim', explode(',', $connection['lang_filter'])));
+        }
+
+        $allLanguages = Language::getLanguages(false);
+
         return $this->smFetch('connection_form.tpl', [
             'connection'          => $connection,
             'new_credentials'     => (!$idConn && $isMaster) ? SyncMasterApi::generateCredentials() : [],
@@ -1021,6 +1031,8 @@ class SyncMaster extends Module
             'errors'              => $errors,
             'all_categories'      => $allCategories,
             'selected_categories' => $selectedCategories,
+            'all_languages'       => $allLanguages,
+            'selected_lang_isos'  => $selectedLangIsos,
             'role_options'        => [
                 ['value' => 'free',   'label' => $this->l('Free ID — La hija puede tener su propio catálogo')],
                 ['value' => 'shared', 'label' => $this->l('Shared ID — Réplica exacta (mismo ID de producto)')],
@@ -1062,6 +1074,19 @@ class SyncMaster extends Module
             }
         }
 
+        // Idiomas seleccionados: array de ISO codes, guardar como CSV
+        $langFilter = [];
+        $postedLangs = Tools::getValue('lang_filter', []);
+        if (is_array($postedLangs)) {
+            $availIsos = array_column(Language::getLanguages(false), 'iso_code');
+            foreach ($postedLangs as $iso) {
+                $iso = trim($iso);
+                if ($iso && in_array($iso, $availIsos)) {
+                    $langFilter[] = $iso;
+                }
+            }
+        }
+
         $data = [
             'name'            => pSQL($name),
             'remote_url'      => pSQL($remoteUrl),
@@ -1074,6 +1099,7 @@ class SyncMaster extends Module
             'sync_images'     => Tools::getValue('sync_images', 0)     ? 1 : 0,
             'delete_on_slave' => Tools::getValue('delete_on_slave', 0) ? 1 : 0,
             'category_filter' => pSQL(implode(',', $catFilter)),
+            'lang_filter'     => pSQL(implode(',', $langFilter)),
             'batch_size'      => max(10, min(200, (int)Tools::getValue('batch_size', 50))),
             'batch_delay'     => max(0,  min(30,  (int)Tools::getValue('batch_delay', 1))),
             'timeout'         => max(10, min(120, (int)Tools::getValue('timeout', 30))),

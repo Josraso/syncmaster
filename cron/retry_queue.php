@@ -48,6 +48,8 @@ foreach ([
             ADD COLUMN `delete_on_slave` TINYINT(1) NOT NULL DEFAULT 1 AFTER `sync_images`",
         'category_filter' => "ALTER TABLE `{$_pCron}sync_connections`
             ADD COLUMN `category_filter` TEXT DEFAULT NULL AFTER `delete_on_slave`",
+        'lang_filter'     => "ALTER TABLE `{$_pCron}sync_connections`
+            ADD COLUMN `lang_filter` VARCHAR(255) DEFAULT NULL AFTER `category_filter`",
     ],
     'sync_initial_job' => [
         'skip_images' => "ALTER TABLE `{$_pCron}sync_initial_job`

@@ -122,21 +122,28 @@ class SyncMasterQueue
     {
         $stats = ['processed' => 0, 'failed' => 0, 'skipped' => 0];
 
-        // Asegurar que delete_on_slave existe (puede que upgradeSchema aún no haya corrido)
+        // Asegurar que las columnas de migración existen (puede que upgradeSchema aún no haya corrido)
         $p = _DB_PREFIX_;
-        $cols = Db::getInstance()->executeS(
-            'SELECT COLUMN_NAME FROM information_schema.COLUMNS
-             WHERE TABLE_SCHEMA = DATABASE()
-               AND TABLE_NAME = \'' . pSQL($p . 'sync_connections') . '\'
-               AND COLUMN_NAME = \'delete_on_slave\''
+        $existingCols = array_column(
+            Db::getInstance()->executeS(
+                'SELECT COLUMN_NAME FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE()
+                   AND TABLE_NAME = \'' . pSQL($p . 'sync_connections') . '\''
+            ) ?: [],
+            'COLUMN_NAME'
         );
-        if (empty($cols)) {
-            Db::getInstance()->execute(
-                'ALTER TABLE `' . $p . 'sync_connections`
-                 ADD COLUMN `delete_on_slave` TINYINT(1) NOT NULL DEFAULT 1 AFTER `sync_images`'
-            );
+        $existingCols = array_map('strtolower', $existingCols);
+        $colMigrations = [
+            'delete_on_slave' => "ALTER TABLE `{$p}sync_connections` ADD COLUMN `delete_on_slave` TINYINT(1) NOT NULL DEFAULT 1 AFTER `sync_images`",
+            'category_filter' => "ALTER TABLE `{$p}sync_connections` ADD COLUMN `category_filter` TEXT DEFAULT NULL AFTER `delete_on_slave`",
+            'lang_filter'     => "ALTER TABLE `{$p}sync_connections` ADD COLUMN `lang_filter` VARCHAR(255) DEFAULT NULL AFTER `category_filter`",
+        ];
+        foreach ($colMigrations as $col => $sql) {
+            if (!in_array($col, $existingCols)) {
+                Db::getInstance()->execute($sql);
+            }
         }
-        unset($cols, $p);
+        unset($existingCols, $colMigrations, $col, $sql, $p);
 
         $items = Db::getInstance()->executeS(
             'SELECT q.*, c.remote_url, c.api_key, c.api_secret, c.timeout, c.id_mode,
