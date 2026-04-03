@@ -95,6 +95,19 @@ class SyncMasterImporter
             return $this->deleteProduct($masterId, $localId);
         }
 
+        // Fallback en modo free: si no hay entry en id_map, intentar localizar el producto
+        // en esta tienda por referencia (solo si la referencia es única, para evitar
+        // problemas con referencias repetidas)
+        if ($isNew && $this->idMode === 'free' && !empty($data['reference'])) {
+            $foundByRef = $this->findProductByUniqueReference($data['reference']);
+            if ($foundByRef) {
+                $localId = $foundByRef;
+                $isNew   = false;
+                // Registrar el mapa para que los próximos syncs no necesiten la búsqueda
+                $this->saveIdMap('product', $masterId, $localId, []);
+            }
+        }
+
         // Obtener hashes guardados para if_untouched
         $savedHashes = $this->getFieldHashes('product', $masterId);
 
@@ -787,6 +800,36 @@ class SyncMasterImporter
              AND master_id = ' . (int)$masterId
         );
         return $json ? (json_decode($json, true) ?: []) : [];
+    }
+
+    /**
+     * Busca un producto en la tienda local por referencia.
+     * Solo devuelve un resultado si la referencia es ÚNICA (exactamente un producto).
+     * Con referencias repetidas devuelve 0 para evitar mapeos ambiguos.
+     * También comprueba que el producto encontrado no esté ya mapeado a otro master_id.
+     *
+     * @param  string $reference
+     * @return int    id_product local, 0 si no encontrado o ambiguo
+     */
+    private function findProductByUniqueReference($reference)
+    {
+        $rows = Db::getInstance()->executeS(
+            'SELECT id_product FROM `' . _DB_PREFIX_ . 'product`
+             WHERE reference = \'' . pSQL($reference) . '\' LIMIT 2'
+        );
+        if (count($rows) !== 1) {
+            return 0; // sin match o referencia duplicada → no usar
+        }
+        $localId = (int)$rows[0]['id_product'];
+
+        // Verificar que no esté ya mapeado a un master_id diferente
+        $existing = Db::getInstance()->getValue(
+            'SELECT master_id FROM `' . _DB_PREFIX_ . 'sync_id_map`
+             WHERE id_connection = ' . $this->idConnection . '
+             AND entity_type = \'product\'
+             AND local_id = ' . $localId
+        );
+        return $existing ? 0 : $localId;
     }
 
     // =========================================================================

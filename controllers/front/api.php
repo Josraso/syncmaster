@@ -225,10 +225,15 @@ class SyncmasterApiModuleFrontController extends ModuleFrontController
         $payload    = $auth['payload'];
         $start      = microtime(true);
 
-        $fieldConfig = SyncMasterFieldConfig::getForConnection((int)$connection['id_connection']);
+        $idConnection = (int)$connection['id_connection'];
+        $fieldConfig  = SyncMasterFieldConfig::getForConnection($idConnection);
+
+        // Aplicar regla de precio de la slave (el master aplica la suya propia;
+        // la slave puede tener su propio incremento/descuento configurado aquí)
+        $payload = SyncMasterPriceRule::apply($payload, $idConnection);
 
         $importer = new SyncMasterImporter(
-            (int)$connection['id_connection'],
+            $idConnection,
             $connection['id_mode'],
             $fieldConfig
         );
@@ -273,10 +278,17 @@ class SyncmasterApiModuleFrontController extends ModuleFrontController
             $this->jsonExit(200, ['status' => 'ok', 'processed' => 0]);
         }
 
-        $fieldConfig = SyncMasterFieldConfig::getForConnection((int)$connection['id_connection']);
+        $idConnection = (int)$connection['id_connection'];
+        $fieldConfig  = SyncMasterFieldConfig::getForConnection($idConnection);
+
+        // Aplicar regla de precio de la slave a cada item del lote
+        foreach ($items as &$item) {
+            $item = SyncMasterPriceRule::apply($item, $idConnection);
+        }
+        unset($item);
 
         $importer = new SyncMasterImporter(
-            (int)$connection['id_connection'],
+            $idConnection,
             $connection['id_mode'],
             $fieldConfig
         );
