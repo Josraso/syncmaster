@@ -33,6 +33,19 @@
                         </option>
                     </select>
                 </div>
+                <div class="form-group" style="margin-right:15px;vertical-align:top">
+                    <label style="display:block;margin-bottom:4px"><strong>Idiomas a sincronizar:</strong>
+                        <small class="text-muted"> (deja todos sin marcar = todos)</small>
+                    </label>
+                    {foreach $all_languages as $lang}
+                    <label class="checkbox-inline" style="margin-right:10px">
+                        <input type="checkbox" name="syncmaster_sync_langs[]"
+                               value="{$lang.iso_code}"
+                               {if in_array($lang.iso_code, $selected_lang_isos)}checked{/if}>
+                        {$lang.name|escape:'html'} <span class="label label-default">{$lang.iso_code}</span>
+                    </label>
+                    {/foreach}
+                </div>
                 <button type="submit" name="submitSyncMasterSettings" class="btn btn-primary">
                     <i class="icon-save"></i> Guardar configuración
                 </button>

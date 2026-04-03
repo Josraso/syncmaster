@@ -817,6 +817,18 @@ class SyncMaster extends Module
                 $role = self::ROLE_MASTER;
             }
             Configuration::updateValue('SYNCMASTER_ROLE', $role);
+
+            // Idiomas de sync
+            $postedLangs = Tools::getValue('syncmaster_sync_langs', []);
+            if (!is_array($postedLangs)) { $postedLangs = []; }
+            $validLangs = [];
+            foreach (Language::getLanguages(false) as $lang) {
+                if (in_array($lang['iso_code'], $postedLangs)) {
+                    $validLangs[] = $lang['iso_code'];
+                }
+            }
+            Configuration::updateValue('SYNCMASTER_SYNC_LANGS', implode(',', $validLangs));
+
             $confirm = $this->l('Configuración guardada correctamente.');
         }
 
@@ -833,7 +845,13 @@ class SyncMaster extends Module
         $cronUrl      = Tools::getShopDomainSsl(true) . __PS_BASE_URI__
             . 'modules/syncmaster/cron/retry_queue.php?token=' . $cronToken;
 
+        $allLanguages     = Language::getLanguages(false);
+        $configuredLangs  = Configuration::get('SYNCMASTER_SYNC_LANGS') ?: '';
+        $selectedLangIsos = $configuredLangs ? array_map('trim', explode(',', $configuredLangs)) : [];
+
         return $this->smFetch('dashboard.tpl', [
+            'all_languages'               => $allLanguages,
+            'selected_lang_isos'          => $selectedLangIsos,
             'syncmaster_connections'      => $connections,
             'syncmaster_queue_stats'      => $queueStats,
             'syncmaster_recent_errors'    => $recentErrors,

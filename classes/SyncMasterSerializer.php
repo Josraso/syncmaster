@@ -27,7 +27,7 @@ class SyncMasterSerializer
     public static function serializeProduct($idProduct, array $fieldConfig = [])
     {
         $idLang    = SyncMasterVersionCompat::getDefaultLangId();
-        $languages = SyncMasterVersionCompat::getLanguages();
+        $languages = SyncMasterVersionCompat::getSyncLanguages();
 
         $product = new Product((int)$idProduct, true, $idLang);
         if (!Validate::isLoadedObject($product)) {
@@ -431,7 +431,7 @@ class SyncMasterSerializer
 
     public static function serializeCategory($idCategory)
     {
-        $languages = SyncMasterVersionCompat::getLanguages();
+        $languages = SyncMasterVersionCompat::getSyncLanguages();
         $idLang    = SyncMasterVersionCompat::getDefaultLangId();
 
         $category = new Category((int)$idCategory, $idLang);

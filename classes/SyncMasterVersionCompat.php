@@ -709,6 +709,34 @@ class SyncMasterVersionCompat
     }
 
     /**
+     * Idiomas configurados para sync (filtra por SYNCMASTER_SYNC_LANGS si está configurado)
+     */
+    public static function getSyncLanguages()
+    {
+        $all = self::getLanguages();
+        $configured = Configuration::get('SYNCMASTER_SYNC_LANGS');
+        if (!$configured) {
+            return $all; // sin config → todos
+        }
+        $isos = array_map('trim', explode(',', $configured));
+        return array_values(array_filter($all, function($lang) use ($isos) {
+            return in_array($lang['iso_code'], $isos);
+        }));
+    }
+
+    /**
+     * Mapa iso_code → id_lang solo para idiomas de sync configurados
+     */
+    public static function getSyncLanguageMap()
+    {
+        $map = [];
+        foreach (self::getSyncLanguages() as $lang) {
+            $map[$lang['iso_code']] = (int)$lang['id_lang'];
+        }
+        return $map;
+    }
+
+    /**
      * Encuentra el id_product_attribute de una combinación que tenga EXACTAMENTE
      * los atributos indicados en $attributeIds, para el producto dado.
      * Reemplaza Product::getIdProductAttributesByIdAttributes() que no existe en PS 9.

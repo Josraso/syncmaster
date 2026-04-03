@@ -21,7 +21,7 @@ class SyncMasterImporter
         $this->idConnection = (int)$idConnection;
         $this->idMode       = $idMode;
         $this->fieldConfig  = $fieldConfig;
-        $this->langMap      = SyncMasterVersionCompat::getLanguageMap();
+        $this->langMap      = SyncMasterVersionCompat::getSyncLanguageMap();
     }
 
     // =========================================================================
