@@ -115,11 +115,11 @@ if (in_array($role, ['master', 'both'])) {
         require_once _PS_MODULE_DIR_ . 'syncmaster/classes/SyncMasterInitialJob.php';
     }
 
-    // Solo jobs que llevan >2 minutos sin actividad (otro proceso podría estar trabajando en ellos)
+    // El flock() de arriba garantiza que solo corre una instancia del cron,
+    // así que no hay riesgo de doble proceso — recogemos cualquier job en running.
     $runningJobs = Db::getInstance()->executeS(
         'SELECT id_job FROM `' . _DB_PREFIX_ . 'sync_initial_job`
          WHERE status = \'running\'
-           AND (last_activity IS NULL OR last_activity < DATE_SUB(NOW(), INTERVAL 2 MINUTE))
          ORDER BY last_activity ASC'
     ) ?: [];
 
