@@ -130,6 +130,17 @@ class SyncMasterImporter
                     $product->id       = $masterId;
                 }
                 $isNew = true;
+            } else {
+                // Detectar productos rotos: si no tienen nombre en el idioma por defecto,
+                // forzar isNew=true para que las traducciones se escriban sin restricciones
+                $defaultLang = (int)Configuration::get('PS_LANG_DEFAULT');
+                $hasName = Db::getInstance()->getValue(
+                    'SELECT `name` FROM `' . _DB_PREFIX_ . 'product_lang`
+                     WHERE id_product = ' . (int)$localId . ' AND id_lang = ' . $defaultLang
+                );
+                if (!$hasName) {
+                    $isNew = true; // forzar escritura de traducciones
+                }
             }
         }
 
@@ -203,23 +214,42 @@ class SyncMasterImporter
         }
 
         // Textos multiidioma
-        if (isset($data['translations']) && $this->shouldWrite('name', null, $savedHashes)) {
+        // Para productos nuevos se escriben SIEMPRE (sin ellos el producto queda roto en PS).
+        // Para actualizaciones se aplica el filtro de field config.
+        if (isset($data['translations']) && ($isNew || $this->shouldWrite('name', null, $savedHashes))) {
+            $defaultLangId = (int)Configuration::get('PS_LANG_DEFAULT');
+            $textFields = [
+                'name', 'description', 'description_short',
+                'available_now', 'available_later',
+                'meta_title', 'meta_description', 'meta_keywords',
+                'link_rewrite',
+            ];
+
+            // Primera pasada: escribir las traducciones que coincidan por ISO
+            $writtenLangs = [];
             foreach ($data['translations'] as $iso => $trans) {
                 $idLang = (isset($this->langMap[$iso]) ? $this->langMap[$iso] : null);
                 if (!$idLang) {
                     continue;
                 }
-
-                $textFields = [
-                    'name', 'description', 'description_short',
-                    'available_now', 'available_later',
-                    'meta_title', 'meta_description', 'meta_keywords',
-                    'link_rewrite',
-                ];
+                $writtenLangs[] = $idLang;
                 foreach ($textFields as $tf) {
-                    if (isset($trans[$tf]) && $this->shouldWrite($tf, $trans[$tf], $savedHashes)) {
+                    if (isset($trans[$tf]) && ($isNew || $this->shouldWrite($tf, $trans[$tf], $savedHashes))) {
                         $product->$tf[$idLang] = $trans[$tf];
                         $newHashes[$tf] = SyncMasterSerializer::hashField($trans[$tf]);
+                    }
+                }
+            }
+
+            // Fallback: si el idioma por defecto del slave no recibió traducciones,
+            // copiar la primera traducción disponible para evitar product_lang vacío.
+            if ($isNew && !in_array($defaultLangId, $writtenLangs)) {
+                $firstTrans = reset($data['translations']);
+                if ($firstTrans) {
+                    foreach ($textFields as $tf) {
+                        if (isset($firstTrans[$tf])) {
+                            $product->$tf[$defaultLangId] = $firstTrans[$tf];
+                        }
                     }
                 }
             }
