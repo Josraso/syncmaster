@@ -576,18 +576,20 @@ class SyncMaster extends Module
 
     private function setDefaultConfig()
     {
-        Configuration::updateValue('SYNCMASTER_ROLE',          self::ROLE_MASTER);
-        Configuration::updateValue('SYNCMASTER_SYNC_STOCK',    1);
-        Configuration::updateValue('SYNCMASTER_SYNC_IMAGES',   1);
-        Configuration::updateValue('SYNCMASTER_CRON_TOKEN',    md5(uniqid('syncmaster_', true)));
-        Configuration::updateValue('SYNCMASTER_QUEUE_WORKER',  1);
-        Configuration::updateValue('SYNCMASTER_LOG_RETENTION', 30);
+        Configuration::updateValue('SYNCMASTER_ROLE',            self::ROLE_MASTER);
+        Configuration::updateValue('SYNCMASTER_SYNC_STOCK',      1);
+        Configuration::updateValue('SYNCMASTER_SYNC_IMAGES',     1);
+        Configuration::updateValue('SYNCMASTER_DELETE_PRODUCTS', 1);
+        Configuration::updateValue('SYNCMASTER_CRON_TOKEN',      md5(uniqid('syncmaster_', true)));
+        Configuration::updateValue('SYNCMASTER_QUEUE_WORKER',    1);
+        Configuration::updateValue('SYNCMASTER_LOG_RETENTION',   30);
     }
 
     private function deleteConfig()
     {
         foreach ([
             'SYNCMASTER_ROLE', 'SYNCMASTER_SYNC_STOCK', 'SYNCMASTER_SYNC_IMAGES',
+            'SYNCMASTER_DELETE_PRODUCTS',
             'SYNCMASTER_CRON_TOKEN', 'SYNCMASTER_QUEUE_WORKER', 'SYNCMASTER_LOG_RETENTION',
         ] as $key) {
             Configuration::deleteByName($key);
@@ -772,7 +774,10 @@ class SyncMaster extends Module
                 $role = self::ROLE_MASTER;
             }
             Configuration::updateValue('SYNCMASTER_ROLE', $role);
-            $confirm = $this->l('Rol guardado correctamente.');
+            Configuration::updateValue('SYNCMASTER_DELETE_PRODUCTS',
+                Tools::getValue('syncmaster_delete_products', 0) ? 1 : 0
+            );
+            $confirm = $this->l('Configuración guardada correctamente.');
         }
 
         if (Configuration::get('SYNCMASTER_QUEUE_WORKER')) {
@@ -795,6 +800,7 @@ class SyncMaster extends Module
             'syncmaster_recent_success'   => [],
             'syncmaster_cron_url'         => $cronUrl,
             'syncmaster_role'             => Configuration::get('SYNCMASTER_ROLE'),
+            'syncmaster_delete_products'  => (bool)Configuration::get('SYNCMASTER_DELETE_PRODUCTS'),
             'syncmaster_ping_results'     => [],
             'syncmaster_ps_version'       => _PS_VERSION_,
             'syncmaster_module_version'   => $this->version,

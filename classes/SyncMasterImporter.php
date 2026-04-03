@@ -92,6 +92,10 @@ class SyncMasterImporter
         $isNew     = ($localId === 0);
 
         if ($action === 'delete') {
+            // Si la opción de borrado está desactivada, ignorar silenciosamente
+            if (!Configuration::get('SYNCMASTER_DELETE_PRODUCTS')) {
+                return ['success' => true, 'skipped' => true];
+            }
             return $this->deleteProduct($masterId, $localId);
         }
 
@@ -258,6 +262,14 @@ class SyncMasterImporter
         }
 
         // -----------------------------------------------------------------
+        // Imágenes inline — importar ANTES de combinaciones para que los IDs
+        // ya estén mapeados cuando se asocien imágenes a cada combinación
+        // -----------------------------------------------------------------
+        if (!empty($data['images']) && $this->shouldWrite('images', null, $savedHashes)) {
+            $this->importProductImagesInline($masterId, $localId, $data['images']);
+        }
+
+        // -----------------------------------------------------------------
         // Combinaciones
         // -----------------------------------------------------------------
         if (!empty($data['combinations']) && $this->shouldWrite('attributes', null, $savedHashes)) {
@@ -315,6 +327,11 @@ class SyncMasterImporter
     private function importCombinations(Product $product, array $combinations)
     {
         $idLang = SyncMasterVersionCompat::getDefaultLangId();
+        $db     = Db::getInstance();
+
+        // IDs de combinaciones del slave que se crean/actualizan en este import
+        // → cualquier combinación del slave que NO esté aquí será eliminada al final
+        $processedSlaveIds = [];
 
         foreach ($combinations as $combIdx => $comb) {
             try {
@@ -324,7 +341,7 @@ class SyncMasterImporter
                         $attr['group_name'], $idLang
                     );
                     if (!$idGroup) {
-                        continue; // skip this attribute, no group
+                        continue;
                     }
                     $idAttr = SyncMasterVersionCompat::findOrCreateAttribute(
                         $idGroup, $attr['attr_name'], $idLang
@@ -334,38 +351,52 @@ class SyncMasterImporter
                     }
                 }
 
-                // Filtrar ceros por si acaso y verificar que queda algo
                 $attributeIds = array_values(array_unique(array_filter($attributeIds)));
                 if (empty($attributeIds)) {
                     continue;
                 }
 
-                // Buscar si ya existe esta combinación exacta
                 $idProductAttribute = SyncMasterVersionCompat::findCombinationByAttributes(
                     $product->id,
                     $attributeIds
                 );
 
                 if (!$idProductAttribute) {
-                    // Crear combinación con SQL directo
                     $idProductAttribute = SyncMasterVersionCompat::addProductAttributeCompat($product, $comb);
-
                     if ($idProductAttribute) {
                         SyncMasterVersionCompat::addAttributeCombinationsSql($idProductAttribute, $attributeIds);
                     }
                 } else {
-                    // Actualizar combinación existente
                     SyncMasterVersionCompat::updateProductAttributeSql($idProductAttribute, $comb);
                 }
 
+                if (!$idProductAttribute) {
+                    continue;
+                }
+
+                $processedSlaveIds[] = (int)$idProductAttribute;
+
+                // Mapear master combination ID → slave combination ID
+                // (necesario para importStock() en modo free-ID)
+                $masterAttrId = (int)$comb['id_product_attribute'];
+                if ($masterAttrId) {
+                    $this->saveIdMap('product_attribute', $masterAttrId, $idProductAttribute, []);
+                }
+
                 // Stock de la combinación
-                if ($idProductAttribute && isset($comb['quantity'])) {
+                if (isset($comb['quantity'])) {
                     SyncMasterVersionCompat::setProductStock(
                         (int)$product->id,
                         (int)$idProductAttribute,
                         (int)$comb['quantity']
                     );
                 }
+
+                // Asociar imágenes a la combinación
+                if (!empty($comb['images'])) {
+                    $this->linkCombinationImages($idProductAttribute, $comb['images']);
+                }
+
             } catch (Exception $e) {
                 SyncMasterLogger::log(
                     $this->idConnection, 'combination', (int)$product->id,
@@ -381,7 +412,84 @@ class SyncMasterImporter
             }
         }
 
+        // Eliminar combinaciones huérfanas (existían en el slave, ya no están en el master)
+        if (!empty($processedSlaveIds)) {
+            $keepList = implode(',', $processedSlaveIds);
+            $orphans  = $db->executeS(
+                'SELECT id_product_attribute FROM `' . _DB_PREFIX_ . 'product_attribute`
+                 WHERE id_product = ' . (int)$product->id . '
+                 AND id_product_attribute NOT IN (' . $keepList . ')'
+            ) ?: [];
+            foreach ($orphans as $row) {
+                $this->deleteProductAttribute((int)$product->id, (int)$row['id_product_attribute']);
+            }
+        }
+
         SyncMasterVersionCompat::postProcessCombinations($product);
+    }
+
+    /**
+     * Elimina una combinación y todos sus datos relacionados via SQL directo
+     * (cross-version: funciona en PS 1.6 → 9)
+     */
+    private function deleteProductAttribute($idProduct, $idPA)
+    {
+        $db = Db::getInstance();
+        $db->execute('DELETE FROM `' . _DB_PREFIX_ . 'product_attribute_combination`
+                      WHERE id_product_attribute = ' . $idPA);
+        $db->execute('DELETE FROM `' . _DB_PREFIX_ . 'product_attribute_image`
+                      WHERE id_product_attribute = ' . $idPA);
+        $db->execute('DELETE FROM `' . _DB_PREFIX_ . 'product_attribute_shop`
+                      WHERE id_product_attribute = ' . $idPA);
+        $db->execute('DELETE FROM `' . _DB_PREFIX_ . 'stock_available`
+                      WHERE id_product_attribute = ' . $idPA . ' AND id_product = ' . $idProduct);
+        $db->execute('DELETE FROM `' . _DB_PREFIX_ . 'product_attribute`
+                      WHERE id_product_attribute = ' . $idPA);
+    }
+
+    /**
+     * Asocia imágenes del slave a una combinación del slave.
+     * Requiere que las imágenes ya estén importadas (mappings en sync_id_map).
+     */
+    private function linkCombinationImages($idProductAttribute, array $masterImageIds)
+    {
+        $db = Db::getInstance();
+        $db->execute(
+            'DELETE FROM `' . _DB_PREFIX_ . 'product_attribute_image`
+             WHERE id_product_attribute = ' . (int)$idProductAttribute
+        );
+        foreach ($masterImageIds as $masterImgId) {
+            $localImgId = $this->resolveLocalId('image', (int)$masterImgId);
+            if ($localImgId) {
+                $db->insert('product_attribute_image', [
+                    'id_product_attribute' => (int)$idProductAttribute,
+                    'id_image'             => (int)$localImgId,
+                ], false, false, Db::INSERT_IGNORE);
+            }
+        }
+    }
+
+    /**
+     * Importa imágenes incluidas en el payload del producto (modo queue real-time).
+     * Solo descarga las que aún no estén mapeadas para no re-descargar en cada update.
+     */
+    private function importProductImagesInline($masterProductId, $localProductId, array $images)
+    {
+        foreach ($images as $imgData) {
+            $masterImgId = (int)$imgData['id_image'];
+            // Si ya está mapeada, omitir (no volver a descargar)
+            if ($this->resolveLocalId('image', $masterImgId)) {
+                continue;
+            }
+            if (empty($imgData['url'])) {
+                continue;
+            }
+            $this->importImage([
+                'id_product' => $masterProductId,
+                'id_image'   => $masterImgId,
+                'url'        => $imgData['url'],
+            ]);
+        }
     }
 
     // =========================================================================
@@ -505,11 +613,18 @@ class SyncMasterImporter
             return ['success' => true, 'skipped' => true];
         }
 
-        // Resolver attribute ID si aplica
+        // Resolver attribute ID: en shared-ID los IDs coinciden; en free hay que usar el mapa
         $localAttrId = 0;
         if ($masterAttrId) {
-            // En modo free necesitaríamos mapearlo, simplificamos por ahora
-            $localAttrId = $masterAttrId;
+            if ($this->idMode === 'shared') {
+                $localAttrId = $masterAttrId;
+            } else {
+                $localAttrId = $this->resolveLocalId('product_attribute', $masterAttrId);
+                // Si no hay mapa aún (primera sync o combinación no importada todavía), ignorar
+                if (!$localAttrId) {
+                    return ['success' => true, 'skipped' => true];
+                }
+            }
         }
 
         SyncMasterVersionCompat::setProductStock($localId, $localAttrId, $quantity);
