@@ -628,6 +628,7 @@ class SyncMaster extends Module
             case 'fields':      return $this->smFields($baseUrl, $action, $idConn);
             case 'sync':        return $this->smSync($baseUrl, $action, $idConn, $idJob);
             case 'logs':        return $this->smLogs($baseUrl, $action, $idConn);
+            case 'reset':       return $this->smReset($baseUrl, $action);
             default:            return $this->smDashboard($baseUrl);
         }
     }
@@ -696,6 +697,61 @@ class SyncMaster extends Module
     // Secciones
     // -------------------------------------------------------------------------
 
+    /**
+     * Reset completo: borra todas las tablas y la configuración,
+     * luego las recrea vacías como si fuera una instalación limpia.
+     */
+    private function smReset($baseUrl, $action)
+    {
+        if ($action === 'confirm') {
+            // Verificar token CSRF básico
+            if (Tools::getValue('reset_token') !== $this->getResetToken()) {
+                return '<div class="alert alert-danger">Token inválido. Recarga la página e inténtalo de nuevo.</div>';
+            }
+
+            $this->dropTables();
+            $this->deleteConfig();
+            $this->createTables();
+            $this->setDefaultConfig();
+
+            // Limpiar caché de configuración de PS si existe
+            if (method_exists('Configuration', 'clearConfigurationCacheForAllShops')) {
+                Configuration::clearConfigurationCacheForAllShops();
+            }
+
+            // Redirigir al dashboard con mensaje de éxito (PRG)
+            Tools::redirectAdmin($baseUrl . '&sm_reset_done=1');
+        }
+
+        // Mostrar confirmación
+        $token = $this->getResetToken();
+        return '<div class="syncmaster-wrap">
+            <a href="' . $baseUrl . '" class="btn btn-default btn-sm" style="margin-bottom:8px">
+                <i class="icon-arrow-left"></i> Panel
+            </a>
+            <h2 style="margin-top:4px;color:#d9534f">⚠ Reset completo del módulo</h2>
+            <div class="alert alert-danger">
+                <strong>¡Atención!</strong> Esta acción borrará <strong>todos</strong> los datos del módulo:
+                conexiones, configuración de campos, cola de sincronización, registros, jobs de sync inicial y mapas de IDs.
+                <br>La configuración quedará como si acabaras de instalar el módulo por primera vez.
+                <br><strong>Esta acción no se puede deshacer.</strong>
+            </div>
+            <form method="post" action="' . $baseUrl . '&sm_section=reset&sm_action=confirm">
+                <input type="hidden" name="reset_token" value="' . htmlspecialchars($token) . '">
+                <button type="submit" class="btn btn-danger btn-lg"
+                    onclick="return confirm(\'¿Estás SEGURO? Se borrarán todas las conexiones y datos del módulo.\')">
+                    <i class="icon-trash"></i> Sí, borrar todo y empezar de cero
+                </button>
+                <a href="' . $baseUrl . '" class="btn btn-default btn-lg" style="margin-left:10px">Cancelar</a>
+            </form>
+        </div>';
+    }
+
+    private function getResetToken()
+    {
+        return md5('syncmaster_reset_' . $this->context->employee->id . '_' . date('YmdH'));
+    }
+
     private function smDashboard($baseUrl)
     {
         $confirm = '';
@@ -739,6 +795,7 @@ class SyncMaster extends Module
             'link_fields'                 => $baseUrl . '&sm_section=fields',
             'link_sync'                   => $baseUrl . '&sm_section=sync',
             'link_logs'                   => $baseUrl . '&sm_section=logs',
+            'link_reset'                  => $baseUrl . '&sm_section=reset',
         ]);
     }
 

@@ -188,6 +188,10 @@
             <a href="{$link_logs}" class="btn btn-default">
                 <i class="icon-file-text"></i> Ver registros
             </a>
+            <a href="{$link_reset}" class="btn btn-danger pull-right"
+               title="Borra todas las conexiones, cola y configuración del módulo">
+                <i class="icon-trash"></i> Reset completo
+            </a>
         </div>
     </div>
 
