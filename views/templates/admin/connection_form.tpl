@@ -178,25 +178,126 @@
                     </div>
                 </div>
 
-                {* Filtro de categorías *}
+                {* Filtro de categorías — árbol colapsable *}
                 {if !empty($all_categories)}
                 <hr style="margin:20px 0">
-                <h4 style="margin-top:0">Filtro de categorías <small class="text-muted">(sync inicial)</small></h4>
+                <h4 style="margin-top:0">
+                    Filtro de categorías <small class="text-muted">(sync inicial)</small>
+                    <small style="margin-left:8px">
+                        <a href="#" id="sm-cat-expand-all" style="font-size:12px">Expandir todo</a> |
+                        <a href="#" id="sm-cat-collapse-all" style="font-size:12px">Colapsar todo</a>
+                    </small>
+                </h4>
                 <p class="help-block" style="margin-top:0">
                     Deja todo sin marcar para sincronizar <strong>todos</strong> los productos.
                     Marca categorías para sincronizar solo esos productos en el sync inicial.
                 </p>
-                <div style="max-height:220px;overflow-y:auto;border:1px solid #ddd;padding:10px;border-radius:4px;background:#fafafa">
+
+                {* Fuente de datos flat — invisible, JS construye el árbol *}
+                <div id="sm-cat-flat" style="display:none">
                     {foreach $all_categories as $cat}
-                        <div class="checkbox" style="margin:{($cat.level_depth - 1) * 16}px 0 2px {($cat.level_depth - 1) * 16}px">
-                            <label>
-                                <input type="checkbox" name="category_filter[]" value="{$cat.id_category}"
-                                    {if in_array($cat.id_category, $selected_categories)}checked{/if}>
-                                {$cat.name|escape:'html'}
-                            </label>
-                        </div>
+                    <span class="sm-cat-item"
+                          data-id="{$cat.id_category}"
+                          data-parent="{$cat.id_parent}"
+                          data-name="{$cat.name|escape:'html'}"
+                          data-checked="{if in_array($cat.id_category, $selected_categories)}1{else}0{/if}">
+                    </span>
                     {/foreach}
                 </div>
+
+                {* Árbol renderizado por JS *}
+                <div id="sm-cat-tree" style="max-height:320px;overflow-y:auto;border:1px solid #ddd;padding:10px;border-radius:4px;background:#fafafa">
+                    <em style="color:#999;font-size:12px">Cargando árbol…</em>
+                </div>
+
+                <style>
+                .sm-tree-node { line-height:1.6; }
+                .sm-tree-row  { display:flex; align-items:center; white-space:nowrap; }
+                .sm-tree-toggle {
+                    cursor:pointer; user-select:none;
+                    width:18px; height:18px; line-height:16px; text-align:center;
+                    background:#e8e8e8; border:1px solid #bbb; border-radius:3px;
+                    font-size:14px; font-weight:bold; color:#555;
+                    margin-right:4px; flex-shrink:0; display:inline-block;
+                }
+                .sm-tree-toggle:hover { background:#d0d0d0; }
+                .sm-tree-leaf  { width:18px; margin-right:4px; flex-shrink:0; display:inline-block; }
+                .sm-tree-children { padding-left:22px; }
+                .sm-tree-row label { margin:0; font-weight:normal; cursor:pointer; }
+                .sm-tree-row input[type=checkbox] { margin-right:5px; vertical-align:middle; }
+                </style>
+
+                <script>
+                (function($){
+                    $(function(){
+                        var items = {}, roots = [];
+
+                        // Indexar
+                        $('#sm-cat-flat .sm-cat-item').each(function(){
+                            var d = $(this).data();
+                            items[d.id] = { id: d.id, parent: d.parent, name: d.name, checked: d.checked == 1, children: [] };
+                        });
+
+                        // Construir árbol
+                        $.each(items, function(id, item){
+                            if (items[item.parent]) {
+                                items[item.parent].children.push(id);
+                            } else {
+                                roots.push(id);
+                            }
+                        });
+
+                        function renderNode(id, $parent, open){
+                            var item = items[id];
+                            if (!item) return;
+                            var hasChildren = item.children.length > 0;
+
+                            var $node = $('<div class="sm-tree-node" data-node-id="' + id + '">');
+                            var $row  = $('<div class="sm-tree-row">');
+
+                            if (hasChildren) {
+                                var $btn = $('<span class="sm-tree-toggle">' + (open ? '&#8722;' : '+') + '</span>');
+                                $row.append($btn);
+                            } else {
+                                $row.append('<span class="sm-tree-leaf"></span>');
+                            }
+
+                            var chk = '<input type="checkbox" name="category_filter[]" value="' + item.id + '"'
+                                    + (item.checked ? ' checked' : '') + '>';
+                            $row.append('<label>' + chk + ' ' + $('<span>').text(item.name).html() + '</label>');
+                            $node.append($row);
+
+                            if (hasChildren) {
+                                var $children = $('<div class="sm-tree-children">').toggle(open);
+                                $.each(item.children, function(i, cid){ renderNode(cid, $children, false); });
+                                $node.append($children);
+
+                                $btn.on('click', function(){
+                                    var $c = $node.children('.sm-tree-children');
+                                    var nowOpen = $c.toggle().is(':visible');
+                                    $(this).html(nowOpen ? '&#8722;' : '+');
+                                });
+                            }
+                            $parent.append($node);
+                        }
+
+                        var $tree = $('#sm-cat-tree').empty();
+                        $.each(roots, function(i, id){ renderNode(id, $tree, true); });
+
+                        // Expandir / colapsar todo
+                        $('#sm-cat-expand-all').on('click', function(e){
+                            e.preventDefault();
+                            $tree.find('.sm-tree-children').show();
+                            $tree.find('.sm-tree-toggle').html('&#8722;');
+                        });
+                        $('#sm-cat-collapse-all').on('click', function(e){
+                            e.preventDefault();
+                            $tree.find('.sm-tree-children').hide();
+                            $tree.find('.sm-tree-toggle').html('+');
+                        });
+                    });
+                }(jQuery));
+                </script>
                 {/if}
             </div>
             <div class="panel-footer">

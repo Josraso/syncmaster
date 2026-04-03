@@ -977,12 +977,12 @@ class SyncMaster extends Module
         // Categorías disponibles para el filtro (solo modo master)
         $idLang = (int)Configuration::get('PS_LANG_DEFAULT');
         $allCategories = $isMaster ? (Db::getInstance()->executeS(
-            'SELECT c.id_category, cl.name, c.level_depth
+            'SELECT c.id_category, c.id_parent, cl.name, c.level_depth
              FROM `' . _DB_PREFIX_ . 'category` c
              INNER JOIN `' . _DB_PREFIX_ . 'category_lang` cl
                  ON cl.id_category = c.id_category AND cl.id_lang = ' . $idLang . '
              WHERE c.id_category > 2 AND c.active = 1
-             ORDER BY c.level_depth ASC, cl.name ASC'
+             ORDER BY c.nleft ASC'
         ) ?: []) : [];
 
         $selectedCategories = [];

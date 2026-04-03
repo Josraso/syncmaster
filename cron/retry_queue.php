@@ -73,6 +73,26 @@ foreach ([
 unset($_pCron, $_cronTable, $_cronCols, $_cronExisting, $_cronRows, $_col, $_sql, $_r);
 
 // =========================================================================
+// MUTEX: evitar ejecuciones paralelas del cron
+// =========================================================================
+$_lockFile = dirname(__FILE__) . '/retry_queue.lock';
+$_lock     = fopen($_lockFile, 'c');
+if (!$_lock || !flock($_lock, LOCK_EX | LOCK_NB)) {
+    // Ya hay una instancia corriendo
+    if (php_sapi_name() !== 'cli') {
+        header('Content-Type: text/plain');
+        echo date('Y-m-d H:i:s') . ' | Cron already running, skipping.' . PHP_EOL;
+    }
+    if ($_lock) { fclose($_lock); }
+    exit;
+}
+register_shutdown_function(function() use ($_lock, $_lockFile) {
+    flock($_lock, LOCK_UN);
+    fclose($_lock);
+    @unlink($_lockFile);
+});
+
+// =========================================================================
 // 1. PROCESAR COLA DE REINTENTOS (eventos en tiempo real)
 // =========================================================================
 $stats = SyncMasterQueue::processQueue(50);
@@ -95,10 +115,12 @@ if (in_array($role, ['master', 'both'])) {
         require_once _PS_MODULE_DIR_ . 'syncmaster/classes/SyncMasterInitialJob.php';
     }
 
+    // Solo jobs que llevan >2 minutos sin actividad (otro proceso podría estar trabajando en ellos)
     $runningJobs = Db::getInstance()->executeS(
         'SELECT id_job FROM `' . _DB_PREFIX_ . 'sync_initial_job`
          WHERE status = \'running\'
-         ORDER BY last_activity DESC'
+           AND (last_activity IS NULL OR last_activity < DATE_SUB(NOW(), INTERVAL 2 MINUTE))
+         ORDER BY last_activity ASC'
     ) ?: [];
 
     $cronStart = time();
@@ -106,14 +128,19 @@ if (in_array($role, ['master', 'both'])) {
         $idJob = (int)$jobRow['id_job'];
         // Procesar lotes hasta agotar ~50 segundos del ciclo de cron
         while ((time() - $cronStart) < 50) {
-            $batchResult = SyncMasterInitialJob::processNextBatch($idJob);
-            $initialResult[] = $batchResult;
+            try {
+                $batchResult = SyncMasterInitialJob::processNextBatch($idJob);
+                $initialResult[] = $batchResult;
 
-            if (!empty($batchResult['done'])) {
-                break; // Job terminado
-            }
-            if (!empty($batchResult['error']) || !empty($batchResult['paused'])) {
-                break; // Error o pausado → siguiente cron lo reintentará
+                if (!empty($batchResult['done'])) {
+                    break; // Job terminado
+                }
+                if (!empty($batchResult['error']) || !empty($batchResult['paused'])) {
+                    break; // Error o pausado → siguiente cron lo reintentará
+                }
+            } catch (Exception $batchEx) {
+                $initialResult[] = ['error' => $batchEx->getMessage()];
+                break; // Siguiente cron reintentará
             }
         }
 
