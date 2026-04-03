@@ -308,12 +308,13 @@ class SyncMasterVersionCompat
             'reference'          => pSQL(isset($comb['reference']) ? $comb['reference'] : ''),
             'ean13'              => pSQL(isset($comb['ean13'])     ? $comb['ean13']     : ''),
             'upc'                => pSQL(isset($comb['upc'])       ? $comb['upc']       : ''),
-            'default_on'         => !empty($comb['is_default']) ? 1 : 0,
+            'default_on'         => !empty($comb['is_default']) ? 1 : null,
         ];
 
-        $db->update('product_attribute',      $data, 'id_product_attribute = ' . (int)$idProductAttribute);
+        // null_values=true para que default_on=null se escriba como NULL en SQL
+        $db->update('product_attribute',      $data, 'id_product_attribute = ' . (int)$idProductAttribute, 0, true);
         $db->update('product_attribute_shop', $data,
-            'id_product_attribute = ' . (int)$idProductAttribute . ' AND id_shop = ' . (int)$idShop
+            'id_product_attribute = ' . (int)$idProductAttribute . ' AND id_shop = ' . (int)$idShop, 0, true
         );
     }
 
@@ -552,7 +553,10 @@ class SyncMasterVersionCompat
         $reference = pSQL(isset($comb['reference']) ? $comb['reference'] : '');
         $ean13     = pSQL(isset($comb['ean13'])     ? $comb['ean13']     : '');
         $upc       = pSQL(isset($comb['upc'])       ? $comb['upc']       : '');
-        $default   = !empty($comb['is_default']) ? 1 : 0;
+        // PS usa NULL (no 0) para combinaciones no-default:
+        // product_attribute y product_attribute_shop tienen UNIQUE KEY (id_product, default_on)
+        // → múltiples NULL están permitidos, múltiples 0 violan la constraint (error 1062)
+        $default   = !empty($comb['is_default']) ? 1 : null;
         $quantity  = (int)(isset($comb['quantity']) ? $comb['quantity'] : 0);
         $idShop    = self::getShopId();
         $paCols    = self::getTableColumns(_DB_PREFIX_ . 'product_attribute');
@@ -583,7 +587,8 @@ class SyncMasterVersionCompat
         // Solo incluir columnas que existen en esta instalación
         $row = array_intersect_key($allData, array_flip($paCols));
 
-        if (!$db->insert('product_attribute', $row)) {
+        // null_values=true para que 'default_on'=>null se escriba como NULL en SQL
+        if (!$db->insert('product_attribute', $row, true)) {
             return 0;
         }
         $idPA = (int)$db->Insert_ID();
@@ -592,12 +597,13 @@ class SyncMasterVersionCompat
         }
 
         // product_attribute_shop (multi-shop) — mismas columnas del shop
-        $shopCols   = self::getTableColumns(_DB_PREFIX_ . 'product_attribute_shop');
+        $shopCols    = self::getTableColumns(_DB_PREFIX_ . 'product_attribute_shop');
         $shopAllData = $allData;
         $shopAllData['id_product_attribute'] = $idPA;
         $shopAllData['id_shop']              = $idShop;
         $shopRow = array_intersect_key($shopAllData, array_flip($shopCols));
-        $db->insert('product_attribute_shop', $shopRow, false, false, Db::INSERT_IGNORE);
+        // null_values=true + INSERT_IGNORE para que default_on=null se escriba como NULL
+        $db->insert('product_attribute_shop', $shopRow, true, false, Db::INSERT_IGNORE);
 
         return $idPA;
     }
