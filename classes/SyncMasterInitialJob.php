@@ -308,6 +308,11 @@ class SyncMasterInitialJob
                      LIMIT ' . (int)$limit . ' OFFSET ' . (int)$offset
                 );
 
+            case self::PHASE_VERIFICATION:
+                // Un único "comando" que le dice al slave que enlace
+                // las imágenes de combinaciones pendientes de la fase de productos
+                return $offset === 0 ? [['cmd' => 'link_comb_images']] : [];
+
             default:
                 return [];
         }
@@ -402,6 +407,15 @@ class SyncMasterInitialJob
                     ];
                     break;
 
+                case self::PHASE_VERIFICATION:
+                    // Comando para que el slave resuelva los enlaces combinación→imagen
+                    // que quedaron pendientes durante la fase de productos
+                    $data = [
+                        'entity' => 'command',
+                        'cmd'    => $item['cmd'],
+                    ];
+                    break;
+
                 default:
                     $data = null;
             }
@@ -473,8 +487,10 @@ class SyncMasterInitialJob
                 return (int)Db::getInstance()->getValue(
                     'SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'image`'
                 );
+            case self::PHASE_VERIFICATION:
+                return 1; // un único comando link_comb_images
             default:
-                return 10; // attributes/features/verification: tamaño estimado pequeño
+                return 10; // attributes/features: tamaño estimado pequeño
         }
     }
 

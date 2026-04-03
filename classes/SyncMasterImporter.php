@@ -51,6 +51,8 @@ class SyncMasterImporter
                 return $this->importFeature($payload);
             case 'image':
                 return $this->importImage($payload);
+            case 'command':
+                return $this->handleCommand($payload);
             default:
                 return ['success' => false, 'error' => 'Entidad desconocida: ' . $entity];
         }
@@ -377,10 +379,13 @@ class SyncMasterImporter
                 $processedSlaveIds[] = (int)$idProductAttribute;
 
                 // Mapear master combination ID → slave combination ID
-                // (necesario para importStock() en modo free-ID)
+                // También guardar los master image IDs para resolverlos tras la fase de imágenes
                 $masterAttrId = (int)$comb['id_product_attribute'];
                 if ($masterAttrId) {
-                    $this->saveIdMap('product_attribute', $masterAttrId, $idProductAttribute, []);
+                    $pendingImgs = !empty($comb['images']) ? array_map('intval', $comb['images']) : [];
+                    $this->saveIdMap('product_attribute', $masterAttrId, $idProductAttribute,
+                        $pendingImgs ? ['master_images' => $pendingImgs] : []
+                    );
                 }
 
                 // Stock de la combinación
@@ -426,6 +431,49 @@ class SyncMasterImporter
         }
 
         SyncMasterVersionCompat::postProcessCombinations($product);
+    }
+
+    /**
+     * Procesa comandos de control enviados por el master durante la sync inicial.
+     * Actualmente: 'link_comb_images' → resuelve imágenes pendientes de combinaciones.
+     */
+    private function handleCommand(array $data)
+    {
+        switch (isset($data['cmd']) ? $data['cmd'] : '') {
+            case 'link_comb_images':
+                $this->resolvePendingCombinationImages();
+                return ['success' => true];
+            default:
+                return ['success' => true]; // comando desconocido, ignorar
+        }
+    }
+
+    /**
+     * Resuelve los enlaces combinación→imagen que quedaron pendientes durante
+     * la fase de productos (porque las imágenes aún no estaban importadas).
+     * Se llama al final de la fase de imágenes en la sync inicial.
+     */
+    public function resolvePendingCombinationImages()
+    {
+        if ($this->idMode === 'shared') {
+            return; // en shared los IDs de imagen son distintos pero no tenemos mapa
+        }
+
+        $rows = Db::getInstance()->executeS(
+            'SELECT local_id, field_hashes
+             FROM `' . _DB_PREFIX_ . 'sync_id_map`
+             WHERE id_connection = ' . $this->idConnection . '
+             AND entity_type = \'product_attribute\'
+             AND field_hashes IS NOT NULL'
+        ) ?: [];
+
+        foreach ($rows as $row) {
+            $hashes = json_decode($row['field_hashes'], true);
+            if (empty($hashes['master_images'])) {
+                continue;
+            }
+            $this->linkCombinationImages((int)$row['local_id'], $hashes['master_images']);
+        }
     }
 
     /**
