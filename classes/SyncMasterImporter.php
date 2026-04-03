@@ -130,17 +130,20 @@ class SyncMasterImporter
                     $product->id       = $masterId;
                 }
                 $isNew = true;
-            } else {
-                // Detectar productos rotos: si no tienen nombre en el idioma por defecto,
-                // forzar isNew=true para que las traducciones se escriban sin restricciones
-                $defaultLang = (int)Configuration::get('PS_LANG_DEFAULT');
-                $hasName = Db::getInstance()->getValue(
-                    'SELECT `name` FROM `' . _DB_PREFIX_ . 'product_lang`
-                     WHERE id_product = ' . (int)$localId . ' AND id_lang = ' . $defaultLang
-                );
-                if (!$hasName) {
-                    $isNew = true; // forzar escritura de traducciones
-                }
+            }
+        }
+
+        // Si el producto existe pero no tiene nombre → reparar traducciones en este sync.
+        // Usamos $forceTranslations en vez de $isNew para NO llamar a add() sobre un producto existente.
+        $forceTranslations = false;
+        if (!$isNew) {
+            $defaultLang = (int)Configuration::get('PS_LANG_DEFAULT');
+            $hasName = Db::getInstance()->getValue(
+                'SELECT `name` FROM `' . _DB_PREFIX_ . 'product_lang`
+                 WHERE id_product = ' . (int)$localId . ' AND id_lang = ' . $defaultLang
+            );
+            if (!$hasName) {
+                $forceTranslations = true;
             }
         }
 
@@ -216,7 +219,7 @@ class SyncMasterImporter
         // Textos multiidioma
         // Para productos nuevos se escriben SIEMPRE (sin ellos el producto queda roto en PS).
         // Para actualizaciones se aplica el filtro de field config.
-        if (isset($data['translations']) && ($isNew || $this->shouldWrite('name', null, $savedHashes))) {
+        if (isset($data['translations']) && ($isNew || $forceTranslations || $this->shouldWrite('name', null, $savedHashes))) {
             $defaultLangId = (int)Configuration::get('PS_LANG_DEFAULT');
             $textFields = [
                 'name', 'description', 'description_short',
@@ -234,7 +237,7 @@ class SyncMasterImporter
                 }
                 $writtenLangs[] = $idLang;
                 foreach ($textFields as $tf) {
-                    if (isset($trans[$tf]) && ($isNew || $this->shouldWrite($tf, $trans[$tf], $savedHashes))) {
+                    if (isset($trans[$tf]) && ($isNew || $forceTranslations || $this->shouldWrite($tf, $trans[$tf], $savedHashes))) {
                         $product->$tf[$idLang] = $trans[$tf];
                         $newHashes[$tf] = SyncMasterSerializer::hashField($trans[$tf]);
                     }
