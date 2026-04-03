@@ -316,48 +316,67 @@ class SyncMasterImporter
     {
         $idLang = SyncMasterVersionCompat::getDefaultLangId();
 
-        foreach ($combinations as $comb) {
-            $attributeIds = [];
-            foreach ($comb['attributes'] as $attr) {
-                $idGroup = SyncMasterVersionCompat::findOrCreateAttributeGroup(
-                    $attr['group_name'], $idLang
-                );
-                $idAttr = SyncMasterVersionCompat::findOrCreateAttribute(
-                    $idGroup, $attr['attr_name'], $idLang
-                );
-                $attributeIds[] = $idAttr;
-            }
-
-            if (empty($attributeIds)) {
-                continue;
-            }
-
-            // Buscar si ya existe esta combinación
-            // (getIdProductAttributesByIdAttributes() no existe en PS 9 — usamos SQL propio)
-            $idProductAttribute = SyncMasterVersionCompat::findCombinationByAttributes(
-                $product->id,
-                $attributeIds
-            );
-
-            if (!$idProductAttribute) {
-                // Crear combinación con SQL directo (evita diferencias de firma entre versiones)
-                $idProductAttribute = SyncMasterVersionCompat::addProductAttributeCompat($product, $comb);
-
-                if ($idProductAttribute) {
-                    // Asociar los atributos a la combinación (SQL directo, sin addAttributeCombinaison)
-                    SyncMasterVersionCompat::addAttributeCombinationsSql($idProductAttribute, $attributeIds);
+        foreach ($combinations as $combIdx => $comb) {
+            try {
+                $attributeIds = [];
+                foreach ($comb['attributes'] as $attr) {
+                    $idGroup = SyncMasterVersionCompat::findOrCreateAttributeGroup(
+                        $attr['group_name'], $idLang
+                    );
+                    if (!$idGroup) {
+                        continue; // skip this attribute, no group
+                    }
+                    $idAttr = SyncMasterVersionCompat::findOrCreateAttribute(
+                        $idGroup, $attr['attr_name'], $idLang
+                    );
+                    if ($idAttr) {
+                        $attributeIds[] = $idAttr;
+                    }
                 }
-            } else {
-                // Actualizar combinación existente (SQL directo)
-                SyncMasterVersionCompat::updateProductAttributeSql($idProductAttribute, $comb);
-            }
 
-            // Stock de la combinación
-            if (isset($comb['quantity'])) {
-                SyncMasterVersionCompat::setProductStock(
-                    (int)$product->id,
-                    (int)$idProductAttribute,
-                    (int)$comb['quantity']
+                // Filtrar ceros por si acaso y verificar que queda algo
+                $attributeIds = array_values(array_unique(array_filter($attributeIds)));
+                if (empty($attributeIds)) {
+                    continue;
+                }
+
+                // Buscar si ya existe esta combinación exacta
+                $idProductAttribute = SyncMasterVersionCompat::findCombinationByAttributes(
+                    $product->id,
+                    $attributeIds
+                );
+
+                if (!$idProductAttribute) {
+                    // Crear combinación con SQL directo
+                    $idProductAttribute = SyncMasterVersionCompat::addProductAttributeCompat($product, $comb);
+
+                    if ($idProductAttribute) {
+                        SyncMasterVersionCompat::addAttributeCombinationsSql($idProductAttribute, $attributeIds);
+                    }
+                } else {
+                    // Actualizar combinación existente
+                    SyncMasterVersionCompat::updateProductAttributeSql($idProductAttribute, $comb);
+                }
+
+                // Stock de la combinación
+                if ($idProductAttribute && isset($comb['quantity'])) {
+                    SyncMasterVersionCompat::setProductStock(
+                        (int)$product->id,
+                        (int)$idProductAttribute,
+                        (int)$comb['quantity']
+                    );
+                }
+            } catch (Exception $e) {
+                SyncMasterLogger::log(
+                    $this->idConnection, 'combination', (int)$product->id,
+                    'import', 'error',
+                    'Comb #' . $combIdx . ': ' . $e->getMessage()
+                );
+            } catch (Error $e) {
+                SyncMasterLogger::log(
+                    $this->idConnection, 'combination', (int)$product->id,
+                    'import', 'error',
+                    'Comb #' . $combIdx . ': ' . $e->getMessage()
                 );
             }
         }

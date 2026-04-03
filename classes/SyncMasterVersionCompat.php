@@ -326,29 +326,59 @@ class SyncMasterVersionCompat
      */
     public static function findOrCreateAttributeGroup($name, $idLang)
     {
-        // Buscar existente
-        $sql = 'SELECT agl.id_attribute_group
-                FROM `' . _DB_PREFIX_ . 'attribute_group_lang` agl
-                WHERE agl.name = \'' . pSQL($name) . '\'
-                AND agl.id_lang = ' . (int)$idLang . '';
-
-        $id = (int)Db::getInstance()->getValue($sql);
+        // Buscar existente por nombre en cualquier idioma (fallback a todos los idiomas)
+        $id = (int)Db::getInstance()->getValue(
+            'SELECT agl.id_attribute_group
+             FROM `' . _DB_PREFIX_ . 'attribute_group_lang` agl
+             WHERE agl.name = \'' . pSQL($name) . '\'
+             AND agl.id_lang = ' . (int)$idLang
+        );
+        if ($id) {
+            return $id;
+        }
+        // Segundo intento: buscar en cualquier idioma
+        $id = (int)Db::getInstance()->getValue(
+            'SELECT agl.id_attribute_group
+             FROM `' . _DB_PREFIX_ . 'attribute_group_lang` agl
+             WHERE agl.name = \'' . pSQL($name) . '\''
+        );
         if ($id) {
             return $id;
         }
 
-        // Crear nuevo
-        $group = new AttributeGroup();
-        $group->is_color_group = 0;
-        $group->group_type     = 'select';
-        $group->position       = 0;
-        foreach (Language::getLanguages(false) as $lang) {
-            $group->name[$lang['id_lang']] = $name;
-            $group->public_name[$lang['id_lang']] = $name;
+        // Crear con SQL directo (evita excepciones del ORM AttributeGroup::add())
+        $db       = Db::getInstance();
+        $position = (int)$db->getValue(
+            'SELECT COALESCE(MAX(position),0)+1 FROM `' . _DB_PREFIX_ . 'attribute_group`'
+        );
+        $db->insert('attribute_group', [
+            'is_color_group' => 0,
+            'group_type'     => 'select',
+            'position'       => $position,
+        ]);
+        $id = (int)$db->Insert_ID();
+        if (!$id) {
+            return 0;
         }
-        $group->add();
 
-        return (int)$group->id;
+        foreach (Language::getLanguages(false) as $lang) {
+            $db->insert('attribute_group_lang', [
+                'id_attribute_group' => $id,
+                'id_lang'            => (int)$lang['id_lang'],
+                'name'               => pSQL($name),
+                'public_name'        => pSQL($name),
+            ], false, false, Db::INSERT_IGNORE);
+        }
+
+        // attribute_group_shop (PS 1.7+)
+        if (self::getTableColumns(_DB_PREFIX_ . 'attribute_group_shop')) {
+            $db->insert('attribute_group_shop', [
+                'id_attribute_group' => $id,
+                'id_shop'            => self::getShopId(),
+            ], false, false, Db::INSERT_IGNORE);
+        }
+
+        return $id;
     }
 
     /**
@@ -392,6 +422,14 @@ class SyncMasterVersionCompat
                 'id_attribute' => $id,
                 'id_lang'      => (int)$lang['id_lang'],
                 'name'         => pSQL($valueName),
+            ], false, false, Db::INSERT_IGNORE);
+        }
+
+        // attribute_shop (PS 1.7+)
+        if (self::getTableColumns(_DB_PREFIX_ . 'attribute_shop')) {
+            Db::getInstance()->insert('attribute_shop', [
+                'id_attribute' => $id,
+                'id_shop'      => self::getShopId(),
             ], false, false, Db::INSERT_IGNORE);
         }
 
