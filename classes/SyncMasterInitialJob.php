@@ -183,8 +183,16 @@ class SyncMasterInitialJob
 
         $durationMs = (int)((microtime(true) - $start) * 1000);
         $itemsSent  = count($items);
-        $itemsOk    = $result['success'] ? $itemsSent : 0;
-        $itemsFail  = $result['success'] ? 0 : $itemsSent;
+
+        // Leer el ok/fail real que devuelve el slave (207 = parcial, 200 = todo ok)
+        if ($result['success']) {
+            $resp      = isset($result['response']) ? $result['response'] : [];
+            $itemsOk   = isset($resp['ok'])     ? (int)$resp['ok']     : $itemsSent;
+            $itemsFail = isset($resp['failed']) ? (int)$resp['failed'] : 0;
+        } else {
+            $itemsOk   = 0;
+            $itemsFail = $itemsSent;
+        }
 
         // Log del lote
         Db::getInstance()->insert('sync_initial_batch', [
@@ -421,7 +429,7 @@ class SyncMasterInitialJob
 
     private static function calcProgress($job, $currentPhase)
     {
-        // Estimación simple basada en fase + items
+        // Pesos de cada fase sobre el total (suma = 100)
         $phaseWeights = [
             self::PHASE_CATEGORIES    => 5,
             self::PHASE_MANUFACTURERS => 2,
@@ -432,22 +440,42 @@ class SyncMasterInitialJob
             self::PHASE_VERIFICATION  => 2,
         ];
 
-        $totalWeight  = array_sum($phaseWeights);
-        $doneWeight   = 0;
+        $totalWeight   = array_sum($phaseWeights);
+        $doneWeight    = 0;
         $currentWeight = 0;
 
         foreach (self::PHASES as $phase) {
             if ($phase === $currentPhase) {
-                // Progreso dentro de la fase actual
-                $total = max(1, (int)$job['total_items']);
-                $done  = (int)$job['processed_items'];
+                // Progreso dentro de la fase actual usando el total de esa fase
+                $phaseTotal = self::countPhaseItems($phase);
+                $total      = max(1, $phaseTotal);
+                $done       = min((int)$job['processed_items'], $total);
                 $currentWeight = $phaseWeights[$phase] * ($done / $total);
                 break;
             }
             $doneWeight += (isset($phaseWeights[$phase]) ? $phaseWeights[$phase] : 0);
         }
 
-        return (int)(($doneWeight + $currentWeight) / $totalWeight * 100);
+        // Nunca devolver 100 aquí (solo cuando done=true); cap a 99
+        return min(99, (int)(($doneWeight + $currentWeight) / $totalWeight * 100));
+    }
+
+    private static function countPhaseItems($phase)
+    {
+        switch ($phase) {
+            case self::PHASE_CATEGORIES:
+                return self::countCategories();
+            case self::PHASE_MANUFACTURERS:
+                return self::countManufacturers();
+            case self::PHASE_PRODUCTS:
+                return self::countProducts();
+            case self::PHASE_IMAGES:
+                return (int)Db::getInstance()->getValue(
+                    'SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'image`'
+                );
+            default:
+                return 10; // attributes/features/verification: tamaño estimado pequeño
+        }
     }
 
     private static function countProducts()

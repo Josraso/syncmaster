@@ -90,7 +90,7 @@
                         <tr>
                             <td>#{$job.id_job}</td>
                             <td>{$job.connection_name|escape:'html'}</td>
-                            <td><span class="label label-default">{$job.phase}</span></td>
+                            <td><span class="label label-default sm-phase-badge">{$job.phase}</span></td>
                             <td>
                                 <div class="progress sm-progress" style="margin:0;min-width:120px">
                                     <div class="progress-bar

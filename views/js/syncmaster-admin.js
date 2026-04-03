@@ -133,6 +133,11 @@
                                 bar.style.width   = data.progress + '%';
                                 bar.textContent   = data.progress + '%';
                             }
+                            // Actualizar el badge de fase si cambió
+                            if (data.phase && row) {
+                                var phaseBadge = row.querySelector('.sm-phase-badge');
+                                if (phaseBadge) { phaseBadge.textContent = data.phase; }
+                            }
                             thisBtn.textContent = 'Lote ' + data.batch + ' (' + data.progress + '%)...';
                             // Pausa breve entre lotes para no saturar el servidor
                             setTimeout(processBatch, 800);

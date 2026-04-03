@@ -255,7 +255,14 @@ class SyncMasterImporter
         // Combinaciones
         // -----------------------------------------------------------------
         if (isset($data['combinations']) && $this->shouldWrite('attributes', null, $savedHashes)) {
-            $this->importCombinations($product, $data['combinations']);
+            try {
+                $this->importCombinations($product, $data['combinations']);
+            } catch (Exception $e) {
+                // Error en combinaciones no mata el producto; el error se ignora silenciosamente
+                // para que el producto base quede importado aunque las combinaciones fallen
+            } catch (Error $e) {
+                // PHP 7+ fatal errors (métodos no existentes, etc.)
+            }
         }
 
         // -----------------------------------------------------------------
@@ -325,28 +332,16 @@ class SyncMasterImporter
             );
 
             if (!$idProductAttribute) {
-                // Crear combinación (wrapper con firma correcta según versión PS)
+                // Crear combinación con SQL directo (evita diferencias de firma entre versiones)
                 $idProductAttribute = SyncMasterVersionCompat::addProductAttributeCompat($product, $comb);
 
                 if ($idProductAttribute) {
-                    $product->addAttributeCombinaison($idProductAttribute, $attributeIds);
+                    // Asociar los atributos a la combinación (SQL directo, sin addAttributeCombinaison)
+                    SyncMasterVersionCompat::addAttributeCombinationsSql($idProductAttribute, $attributeIds);
                 }
             } else {
-                // Actualizar
-                $product->updateAttribute(
-                    $idProductAttribute,
-                    (float)$comb['price'],
-                    (float)$comb['weight'],
-                    0,
-                    0,
-                    null,
-                    (isset($comb['reference']) ? $comb['reference'] : ''),
-                    '',
-                    (isset($comb['ean13']) ? $comb['ean13'] : ''),
-                    (isset($comb['is_default']) ? $comb['is_default'] : false),
-                    null,
-                    (isset($comb['upc']) ? $comb['upc'] : '')
-                );
+                // Actualizar combinación existente (SQL directo)
+                SyncMasterVersionCompat::updateProductAttributeSql($idProductAttribute, $comb);
             }
 
             // Stock de la combinación

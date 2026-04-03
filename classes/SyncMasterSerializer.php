@@ -95,10 +95,13 @@ class SyncMasterSerializer
         // Grupo: precios
         // -----------------------------------------------------------------
         if (self::fieldEnabled('price', $fieldConfig)) {
-            $data['price']           = (float)$product->price;
-            $data['price_tax_incl']  = (float)Product::getPriceStatic(
-                (int)$idProduct, true, null, 6
+            // Leer precio base directamente de BD para evitar que PS aplique
+            // descuentos en caché (specific prices, reglas de precio, etc.)
+            $data['price'] = (float)Db::getInstance()->getValue(
+                'SELECT price FROM `' . _DB_PREFIX_ . 'product` WHERE id_product = ' . (int)$idProduct
             );
+            // price_tax_incl es informativo; el importer usa 'price' (sin IVA, sin descuentos)
+            $data['price_tax_incl'] = (float)Product::getPriceStatic((int)$idProduct, true, null, 6);
         }
         if (self::fieldEnabled('wholesale_price', $fieldConfig)) {
             $data['wholesale_price'] = (float)$product->wholesale_price;

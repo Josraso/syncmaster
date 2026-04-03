@@ -227,21 +227,94 @@ class SyncMasterVersionCompat
     // =========================================================================
 
     /**
-     * Obtiene el id_tax_rules_group por nombre o tipo aproximado
+     * Obtiene el id_tax_rules_group más cercano a un porcentaje dado.
+     * Usa ROUND para evitar errores de precisión float (21.0 vs 21.000001).
      */
     public static function getTaxRuleGroupByRate($rate, $countryIso = null)
     {
-        // Buscar un tax rule group que se aproxime al rate recibido
+        $rate = round((float)$rate, 4);
+
+        // Buscar coincidencia exacta (redondeada)
         $sql = 'SELECT trg.id_tax_rules_group
                 FROM `' . _DB_PREFIX_ . 'tax_rules_group` trg
                 INNER JOIN `' . _DB_PREFIX_ . 'tax_rule` tr
                     ON tr.id_tax_rules_group = trg.id_tax_rules_group
                 INNER JOIN `' . _DB_PREFIX_ . 'tax` t
                     ON t.id_tax = tr.id_tax
-                WHERE t.rate = ' . (float)$rate . '';
+                WHERE ROUND(t.rate, 4) = ' . $rate . '
+                AND trg.active = 1';
 
         $result = Db::getInstance()->getValue($sql);
-        return $result ? (int)$result : 1; // 1 = sin impuesto como fallback
+        if ($result) {
+            return (int)$result;
+        }
+
+        // Sin coincidencia exacta → buscar el más cercano (min diferencia)
+        $sql2 = 'SELECT trg.id_tax_rules_group,
+                        ABS(ROUND(t.rate, 4) - ' . $rate . ') AS diff
+                 FROM `' . _DB_PREFIX_ . 'tax_rules_group` trg
+                 INNER JOIN `' . _DB_PREFIX_ . 'tax_rule` tr
+                     ON tr.id_tax_rules_group = trg.id_tax_rules_group
+                 INNER JOIN `' . _DB_PREFIX_ . 'tax` t
+                     ON t.id_tax = tr.id_tax
+                 WHERE trg.active = 1
+                 ORDER BY diff ASC';
+
+        $nearest = Db::getInstance()->getValue($sql2);
+        return $nearest ? (int)$nearest : 1;
+    }
+
+    /**
+     * Crea las filas en product_attribute_combination (asociación combinación→atributos).
+     * Reemplaza $product->addAttributeCombinaison() que no existe en PS 8/9.
+     *
+     * @param int   $idProductAttribute
+     * @param int[] $attributeIds
+     */
+    public static function addAttributeCombinationsSql($idProductAttribute, array $attributeIds)
+    {
+        $db = Db::getInstance();
+        foreach ($attributeIds as $idAttr) {
+            $db->insert(
+                'product_attribute_combination',
+                [
+                    'id_attribute'         => (int)$idAttr,
+                    'id_product_attribute' => (int)$idProductAttribute,
+                ],
+                false,
+                false,
+                Db::INSERT_IGNORE
+            );
+        }
+    }
+
+    /**
+     * Actualiza una combinación existente via SQL directo.
+     * Reemplaza $product->updateAttribute() que tiene firmas distintas por versión.
+     *
+     * @param int   $idProductAttribute
+     * @param array $comb  (price, weight, reference, ean13, upc, is_default)
+     */
+    public static function updateProductAttributeSql($idProductAttribute, array $comb)
+    {
+        $db     = Db::getInstance();
+        $idShop = self::getShopId();
+
+        $data = [
+            'price'              => (float)(isset($comb['price'])     ? $comb['price']     : 0),
+            'weight'             => (float)(isset($comb['weight'])    ? $comb['weight']    : 0),
+            'unit_price_impact'  => 0,
+            'ecotax'             => 0,
+            'reference'          => pSQL(isset($comb['reference']) ? $comb['reference'] : ''),
+            'ean13'              => pSQL(isset($comb['ean13'])     ? $comb['ean13']     : ''),
+            'upc'                => pSQL(isset($comb['upc'])       ? $comb['upc']       : ''),
+            'default_on'         => !empty($comb['is_default']) ? 1 : 0,
+        ];
+
+        $db->update('product_attribute',      $data, 'id_product_attribute = ' . (int)$idProductAttribute);
+        $db->update('product_attribute_shop', $data,
+            'id_product_attribute = ' . (int)$idProductAttribute . ' AND id_shop = ' . (int)$idShop
+        );
     }
 
     // =========================================================================
