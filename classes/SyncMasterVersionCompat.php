@@ -299,29 +299,37 @@ class SyncMasterVersionCompat
     {
         $db     = Db::getInstance();
         $idShop = self::getShopId();
+        $paCols = self::getTableColumns(_DB_PREFIX_ . 'product_attribute');
+        $shCols = self::getTableColumns(_DB_PREFIX_ . 'product_attribute_shop');
 
-        $data = [
-            'price'              => (float)(isset($comb['price'])     ? $comb['price']     : 0),
-            'weight'             => (float)(isset($comb['weight'])    ? $comb['weight']    : 0),
-            'unit_price_impact'  => 0,
-            'ecotax'             => 0,
-            'reference'          => pSQL(isset($comb['reference']) ? $comb['reference'] : ''),
-            'ean13'              => pSQL(isset($comb['ean13'])     ? $comb['ean13']     : ''),
-            'upc'                => pSQL(isset($comb['upc'])       ? $comb['upc']       : ''),
+        // Todos los posibles campos — solo se enviarán los que existan en la tabla
+        // (PS 1.6 no tiene 'reference', 'isbn', 'mpn', etc.)
+        $allData = [
+            'price'             => (float)(isset($comb['price'])     ? $comb['price']     : 0),
+            'weight'            => (float)(isset($comb['weight'])    ? $comb['weight']    : 0),
+            'unit_price_impact' => 0,
+            'ecotax'            => 0,
+            'reference'         => pSQL(isset($comb['reference']) ? $comb['reference'] : ''),
+            'supplier_reference'=> '',
+            'ean13'             => pSQL(isset($comb['ean13'])     ? $comb['ean13']     : ''),
+            'upc'               => pSQL(isset($comb['upc'])       ? $comb['upc']       : ''),
         ];
-        // default_on: 1 para default, NULL para el resto (UNIQUE KEY — ver addProductAttributeCompat)
-        // Se actualiza via SQL directo para poder escribir NULL sin null_values=true
-        // (que en PS trata '' igual que null y rompería isbn/mpn/etc.)
+
+        $data     = array_intersect_key($allData, array_flip($paCols));
+        $shopData = array_intersect_key($allData, array_flip($shCols));
+
         $defaultVal = !empty($comb['is_default']) ? '1' : 'NULL';
         $wherePA    = 'id_product_attribute = ' . (int)$idProductAttribute;
         $whereShop  = $wherePA . ' AND id_shop = ' . (int)$idShop;
 
-        $db->update('product_attribute',      $data, $wherePA);
-        $db->update('product_attribute_shop', $data, $whereShop);
+        if ($data)     { $db->update('product_attribute',      $data,     $wherePA);   }
+        if ($shopData) { $db->update('product_attribute_shop', $shopData, $whereShop); }
 
-        // Actualizar default_on por separado con SQL crudo para escribir NULL correctamente
-        $db->execute('UPDATE `' . _DB_PREFIX_ . 'product_attribute` SET `default_on` = ' . $defaultVal . ' WHERE ' . $wherePA);
-        $db->execute('UPDATE `' . _DB_PREFIX_ . 'product_attribute_shop` SET `default_on` = ' . $defaultVal . ' WHERE ' . $whereShop);
+        // default_on via SQL crudo para escribir NULL sin null_values=true
+        $db->execute('UPDATE `' . _DB_PREFIX_ . 'product_attribute`
+                      SET `default_on` = ' . $defaultVal . ' WHERE ' . $wherePA);
+        $db->execute('UPDATE `' . _DB_PREFIX_ . 'product_attribute_shop`
+                      SET `default_on` = ' . $defaultVal . ' WHERE ' . $whereShop);
     }
 
     // =========================================================================

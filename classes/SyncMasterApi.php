@@ -149,6 +149,30 @@ class SyncMasterApi
     // =========================================================================
 
     /**
+     * Solicita al master que inicie un job de resync completo hacia esta conexión slave.
+     * Se llama desde la tienda slave; el master debe tener rol 'master' o 'both'.
+     *
+     * @param  bool  $skipImages  Si true el job saltará la fase de imágenes (más rápido)
+     * @return array ['success'=>bool, 'job_id'=>int|null, 'error'=>string|null]
+     */
+    public function requestResync($skipImages = false)
+    {
+        $url       = $this->buildEndpointUrl('trigger_resync');
+        $payload   = json_encode(['ts' => time(), 'skip_images' => (bool)$skipImages]);
+        $timestamp = time();
+        $signature = $this->sign($payload, $timestamp);
+
+        $headers = [
+            'Content-Type: application/json',
+            'X-SyncMaster-Key: ' . $this->apiKey,
+            'X-SyncMaster-Sig: ' . $signature,
+            'X-SyncMaster-TS: '  . $timestamp,
+        ];
+
+        return $this->post($url, $payload, $headers, 30);
+    }
+
+    /**
      * Pregunta al slave cuántos productos tiene, versión de PS, etc.
      */
     public function getSlaveStatus()

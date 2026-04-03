@@ -269,9 +269,12 @@ class SyncMasterImporter
 
         // -----------------------------------------------------------------
         // Imágenes inline — importar ANTES de combinaciones para que los IDs
-        // ya estén mapeados cuando se asocien imágenes a cada combinación
+        // ya estén mapeados cuando se asocien imágenes a cada combinación.
+        // Se omite si el payload lleva skip_images=true (sync rápido sin imágenes).
         // -----------------------------------------------------------------
-        if (!empty($data['images']) && $this->shouldWrite('images', null, $savedHashes)) {
+        if (!empty($data['images']) && empty($data['skip_images'])
+            && $this->shouldWrite('images', null, $savedHashes)
+        ) {
             $this->importProductImagesInline($masterId, $localId, $data['images']);
         }
 
@@ -341,6 +344,9 @@ class SyncMasterImporter
 
         foreach ($combinations as $combIdx => $comb) {
             try {
+                if (empty($comb['attributes'])) {
+                    continue;
+                }
                 $attributeIds = [];
                 foreach ($comb['attributes'] as $attr) {
                     $idGroup = SyncMasterVersionCompat::findOrCreateAttributeGroup(

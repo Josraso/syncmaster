@@ -432,6 +432,10 @@ class SyncMasterInitialJob
                         // Aplicar regla de precio
                         $data = SyncMasterPriceRule::apply($data, (int)$job['id_connection']);
                         $data['action'] = 'create';
+                        // Propagamos skip_images al payload para que el slave NO descargue imágenes
+                        if ($skipImages) {
+                            $data['skip_images'] = true;
+                        }
                     }
                     break;
 

@@ -2,6 +2,14 @@
  * SyncMaster Pro — Lista de conexiones
  *}
 <div class="syncmaster-wrap">
+
+    {if $resync_ok}
+        <div class="alert alert-success">
+            <i class="icon-ok"></i> Solicitud de resync enviada al master correctamente.
+            El master procesará el job en segundo plano. Puedes ver el progreso en la página de <strong>Sync inicial</strong>.
+        </div>
+    {/if}
+
     <div class="sm-header">
         <div>
             <a href="{$link_dashboard}" class="btn btn-default btn-sm" style="margin-bottom:8px">
@@ -67,12 +75,24 @@
                                class="btn btn-default btn-xs" title="{if $conn.active}Desactivar{else}Activar{/if}">
                                 <i class="icon-{if $conn.active}pause{else}play{/if}"></i>
                             </a>
-                            <a href="{$current_url}&sm_action=start_no_images&id_connection={$conn.id_connection}"
-                               class="btn btn-warning btn-xs"
-                               onclick="return confirm('¿Iniciar sync total sin imágenes para «{$conn.name|escape:'html'}»?')"
-                               title="Sync total sin imágenes">
-                                <i class="icon-refresh"></i> Sin imgs
-                            </a>
+                            {* Botón de sync según rol *}
+                            {if $store_role == 'master' || $store_role == 'both'}
+                                {* MASTER: lanza un job local que empuja al slave *}
+                                <a href="{$current_url}&sm_action=start_no_images&id_connection={$conn.id_connection}"
+                                   class="btn btn-warning btn-xs"
+                                   onclick="return confirm('¿Iniciar sync total sin imágenes para «{$conn.name|escape:'html'}»?')"
+                                   title="Sync total sin imágenes (master → slave)">
+                                    <i class="icon-refresh"></i> Sin imgs
+                                </a>
+                            {else}
+                                {* SLAVE: solicita al master que lance un resync *}
+                                <a href="{$current_url}&sm_action=request_resync&id_connection={$conn.id_connection}"
+                                   class="btn btn-warning btn-xs"
+                                   onclick="return confirm('¿Solicitar resync completo sin imágenes al master «{$conn.name|escape:'html'}»?\nEsto pedirá al master que re-envíe todos los productos.')"
+                                   title="Pedir al master que resincronice todo (sin imágenes)">
+                                    <i class="icon-refresh"></i> Resync master
+                                </a>
+                            {/if}
                             <a href="{$current_url}&sm_action=delete&id_connection={$conn.id_connection}"
                                class="btn btn-danger btn-xs"
                                onclick="return confirm('¿Eliminar esta conexión?')" title="Eliminar">

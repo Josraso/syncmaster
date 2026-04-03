@@ -24,6 +24,7 @@ foreach ([
     'SyncMasterSerializer',
     'SyncMasterQueue',
     'SyncMasterImporter',
+    'SyncMasterInitialJob',
     'SyncMasterApi',
 ] as $_smClass) {
     if (!class_exists($_smClass)) {
@@ -95,9 +96,17 @@ class SyncmasterApiModuleFrontController extends ModuleFrontController
         $action = Tools::getValue('action', '');
         $role   = Configuration::get('SYNCMASTER_ROLE');
 
-        // ping y status son tests de conectividad: funcionan en cualquier rol
+        // ping y status funcionan en cualquier rol
+        // trigger_resync lo atiende el MASTER (cuando el slave lo solicita)
         // receive, batch y handshake requieren que esta tienda sea slave o both
-        if ($action !== 'ping' && $action !== 'status') {
+        if (in_array($action, ['trigger_resync'])) {
+            if (!in_array($role, ['master', 'both'])) {
+                $this->jsonExit(403, [
+                    'error' => 'Esta tienda no está configurada como master'
+                        . ' (rol actual: ' . ($role ?: 'no configurado') . ').',
+                ]);
+            }
+        } elseif (!in_array($action, ['ping', 'status'])) {
             if (!in_array($role, ['slave', 'both'])) {
                 $this->jsonExit(403, [
                     'error' => 'Esta tienda no está configurada como slave'
@@ -107,11 +116,12 @@ class SyncmasterApiModuleFrontController extends ModuleFrontController
         }
 
         switch ($action) {
-            case 'ping':      $this->handlePing();      break;
-            case 'status':    $this->handleStatus();    break;
-            case 'handshake': $this->handleHandshake(); break;
-            case 'receive':   $this->handleReceive();   break;
-            case 'batch':     $this->handleBatch();     break;
+            case 'ping':           $this->handlePing();          break;
+            case 'status':         $this->handleStatus();        break;
+            case 'handshake':      $this->handleHandshake();     break;
+            case 'receive':        $this->handleReceive();        break;
+            case 'batch':          $this->handleBatch();          break;
+            case 'trigger_resync': $this->handleTriggerResync(); break;
             default:
                 $this->jsonExit(400, ['error' => 'Acción desconocida: ' . Tools::safeOutput($action)]);
         }
@@ -183,6 +193,35 @@ class SyncmasterApiModuleFrontController extends ModuleFrontController
             'module'     => 'syncmaster',
             'role'       => Configuration::get('SYNCMASTER_ROLE'),
             'ts'         => time(),
+        ]);
+    }
+
+    /**
+     * El slave solicita al master que inicie un job de resync completo.
+     * El master valida las credenciales, identifica la conexión y lanza el job.
+     */
+    private function handleTriggerResync()
+    {
+        $auth     = $this->authenticate();
+        $conn     = $auth['connection'];
+        $payload  = $auth['payload'];
+
+        $skipImages   = !empty($payload['skip_images']);
+        $idConnection = (int)$conn['id_connection'];
+
+        // Asegurarse de que SyncMasterInitialJob está disponible
+        $jobClass = dirname(__FILE__) . '/../../classes/SyncMasterInitialJob.php';
+        if (!class_exists('SyncMasterInitialJob') && file_exists($jobClass)) {
+            require_once $jobClass;
+        }
+
+        $jobId = SyncMasterInitialJob::startOrResume($idConnection, $skipImages);
+
+        $this->jsonExit(200, [
+            'success'      => true,
+            'job_id'       => $jobId,
+            'skip_images'  => $skipImages,
+            'id_connection'=> $idConnection,
         ]);
     }
 

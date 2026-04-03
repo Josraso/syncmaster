@@ -891,6 +891,7 @@ class SyncMaster extends Module
                 return '';
 
             case 'start_no_images':
+                // MASTER: lanza un job local de sync inicial sin imágenes hacia la slave
                 if ($idConn) {
                     $conn = Db::getInstance()->getRow(
                         'SELECT * FROM `' . _DB_PREFIX_ . 'sync_connections`'
@@ -906,11 +907,28 @@ class SyncMaster extends Module
                 }
                 Tools::redirectAdmin($baseUrl . '&sm_section=sync');
                 return '';
+
+            case 'request_resync':
+                // SLAVE: solicita al master que lance un job de resync sin imágenes
+                if ($idConn) {
+                    $conn = Db::getInstance()->getRow(
+                        'SELECT * FROM `' . _DB_PREFIX_ . 'sync_connections`'
+                        . ' WHERE id_connection = ' . $idConn . ' AND active = 1'
+                    );
+                    if ($conn) {
+                        $api = new SyncMasterApi($conn['remote_url'], $conn['api_key'], $conn['api_secret']);
+                        $api->requestResync(true); // skip_images=true
+                    }
+                }
+                Tools::redirectAdmin($listUrl . '&sm_resync_ok=1');
+                return '';
         }
 
         $connections = Db::getInstance()->executeS(
             'SELECT * FROM `' . _DB_PREFIX_ . 'sync_connections` ORDER BY name ASC'
         ) ?: [];
+
+        $storeRole = Configuration::get('SYNCMASTER_ROLE') ?: self::ROLE_MASTER;
 
         return $this->smFetch('connections_list.tpl', [
             'connections'    => $connections,
@@ -918,6 +936,8 @@ class SyncMaster extends Module
             'current_url'    => $listUrl,
             'sm_base_url'    => $baseUrl,
             'link_dashboard' => $baseUrl,
+            'store_role'     => $storeRole,
+            'resync_ok'      => (bool)Tools::getValue('sm_resync_ok', 0),
         ]);
     }
 
