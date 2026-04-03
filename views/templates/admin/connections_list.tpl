@@ -3,7 +3,12 @@
  *}
 <div class="syncmaster-wrap">
     <div class="sm-header">
-        <h2>⇄ Conexiones</h2>
+        <div>
+            <a href="{$link_dashboard}" class="btn btn-default btn-sm" style="margin-bottom:8px">
+                <i class="icon-arrow-left"></i> Panel
+            </a>
+            <h2 style="margin-top:4px">⇄ Conexiones</h2>
+        </div>
         <a href="{$link_add}" class="btn btn-primary">+ Nueva conexión</a>
     </div>
 

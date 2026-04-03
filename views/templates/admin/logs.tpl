@@ -2,7 +2,10 @@
  * SyncMaster Pro — Registros
  *}
 <div class="syncmaster-wrap">
-    <h2>⇄ Registros de sincronización</h2>
+    <a href="{$link_dashboard}" class="btn btn-default btn-sm" style="margin-bottom:8px">
+        <i class="icon-arrow-left"></i> Panel
+    </a>
+    <h2 style="margin-top:4px">⇄ Registros de sincronización</h2>
 
     {* Estadísticas de cola *}
     <div class="sm-stats-row">

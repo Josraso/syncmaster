@@ -2,7 +2,10 @@
  * SyncMaster Pro — Configuración de campos
  *}
 <div class="syncmaster-wrap">
-    <h2>⇄ Configuración de campos por conexión</h2>
+    <a href="{$link_dashboard}" class="btn btn-default btn-sm" style="margin-bottom:8px">
+        <i class="icon-arrow-left"></i> Panel
+    </a>
+    <h2 style="margin-top:4px">⇄ Configuración de campos por conexión</h2>
 
     {* Explicación según rol *}
     {if $store_role == 'master' || $store_role == 'both'}

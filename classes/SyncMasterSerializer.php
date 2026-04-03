@@ -62,6 +62,11 @@ class SyncMasterSerializer
         if (self::fieldEnabled('active', $fieldConfig)) {
             $data['active'] = (bool)$product->active;
         }
+        // product_type: PS 8+ distingue 'standard'/'combinations'/'pack'/'virtual'
+        // Lo exportamos siempre que exista la propiedad (en PS 1.6/1.7 será null)
+        if (isset($product->product_type) && $product->product_type) {
+            $data['product_type'] = $product->product_type;
+        }
         if (self::fieldEnabled('visibility', $fieldConfig)) {
             $data['visibility'] = $product->visibility;
         }

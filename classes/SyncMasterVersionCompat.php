@@ -478,9 +478,28 @@ class SyncMasterVersionCompat
         return Language::getLanguages(false);
     }
 
+    /** Cache de columnas por tabla para no repetir el info_schema */
+    private static $tableColumns = [];
+
+    private static function getTableColumns($table)
+    {
+        if (!isset(self::$tableColumns[$table])) {
+            $rows = Db::getInstance()->executeS(
+                "SELECT COLUMN_NAME FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE()
+                   AND TABLE_NAME   = '" . pSQL($table) . "'"
+            );
+            self::$tableColumns[$table] = $rows
+                ? array_column($rows, 'COLUMN_NAME')
+                : [];
+        }
+        return self::$tableColumns[$table];
+    }
+
     /**
      * Crea una combinación de producto usando SQL directo para evitar diferencias
      * de firma de addProductAttribute() entre PS 1.6 / 1.7 / 8 / 9.
+     * Solo incluye columnas que realmente existen en la tabla (detecta PS 8 isbn, mpn, etc.).
      *
      * @param  Product $product
      * @param  array   $comb   (price, weight, reference, ean13, upc, is_default, quantity)
@@ -492,51 +511,81 @@ class SyncMasterVersionCompat
         $idProduct = (int)$product->id;
         $price     = (float)(isset($comb['price'])     ? $comb['price']     : 0);
         $weight    = (float)(isset($comb['weight'])    ? $comb['weight']    : 0);
-        $reference = isset($comb['reference']) ? pSQL($comb['reference']) : '';
-        $ean13     = isset($comb['ean13'])     ? pSQL($comb['ean13'])     : '';
-        $upc       = isset($comb['upc'])       ? pSQL($comb['upc'])       : '';
+        $reference = pSQL(isset($comb['reference']) ? $comb['reference'] : '');
+        $ean13     = pSQL(isset($comb['ean13'])     ? $comb['ean13']     : '');
+        $upc       = pSQL(isset($comb['upc'])       ? $comb['upc']       : '');
         $default   = !empty($comb['is_default']) ? 1 : 0;
         $quantity  = (int)(isset($comb['quantity']) ? $comb['quantity'] : 0);
         $idShop    = self::getShopId();
-        $prefix    = _DB_PREFIX_;
+        $paCols    = self::getTableColumns(_DB_PREFIX_ . 'product_attribute');
 
-        // Detectar si la tabla tiene columna 'quantity' (PS 1.6) o no (PS 1.7+)
-        $hasQtyCol = (bool)$db->getValue(
-            "SELECT COUNT(*) FROM information_schema.COLUMNS
-             WHERE TABLE_SCHEMA = DATABASE()
-               AND TABLE_NAME   = '{$prefix}product_attribute'
-               AND COLUMN_NAME  = 'quantity'"
-        );
-
-        $row = [
-            'id_product'         => $idProduct,
-            'reference'          => $reference,
-            'ean13'              => $ean13,
-            'upc'                => $upc,
-            'location'           => '',
-            'unit_price_impact'  => 0,
-            'ecotax'             => 0,
-            'weight'             => $weight,
-            'default_on'         => $default,
-            'price'              => $price,
-            'minimal_quantity'   => 1,
+        // Todos los valores posibles para las distintas versiones de PS
+        $allData = [
+            'id_product'          => $idProduct,
+            'reference'           => $reference,
+            'supplier_reference'  => '',
+            'ean13'               => $ean13,
+            'isbn'                => '',   // PS 1.7.3+
+            'upc'                 => $upc,
+            'mpn'                 => '',   // PS 8
+            'location'            => '',
+            'unit_price_impact'   => 0,
+            'ecotax'              => 0,
+            'weight'              => $weight,
+            'default_on'          => $default,
+            'price'               => $price,
+            'minimal_quantity'    => 1,
+            'low_stock_threshold' => 0,    // PS 1.7.7+
+            'low_stock_alert'     => 0,    // PS 1.7.7+
+            'available_date'      => '0000-00-00', // PS 1.7+
+            'wholesale_price'     => 0,
+            'quantity'            => $quantity,  // solo PS 1.6
         ];
-        if ($hasQtyCol) {
-            $row['quantity'] = $quantity;
-        }
+
+        // Solo incluir columnas que existen en esta instalación
+        $row = array_intersect_key($allData, array_flip($paCols));
 
         if (!$db->insert('product_attribute', $row)) {
             return 0;
         }
         $idPA = (int)$db->Insert_ID();
+        if (!$idPA) {
+            return 0;
+        }
 
-        // product_attribute_shop (multi-shop)
-        $shopRow           = $row;
-        $shopRow['id_product_attribute'] = $idPA;
-        $shopRow['id_shop'] = $idShop;
+        // product_attribute_shop (multi-shop) — mismas columnas del shop
+        $shopCols   = self::getTableColumns(_DB_PREFIX_ . 'product_attribute_shop');
+        $shopAllData = $allData;
+        $shopAllData['id_product_attribute'] = $idPA;
+        $shopAllData['id_shop']              = $idShop;
+        $shopRow = array_intersect_key($shopAllData, array_flip($shopCols));
         $db->insert('product_attribute_shop', $shopRow, false, false, Db::INSERT_IGNORE);
 
         return $idPA;
+    }
+
+    /**
+     * Marca el producto como tipo 'combinations' en PS 8+ (donde existe la columna product_type).
+     * En PS 1.6 / 1.7 no hace nada (la columna no existe).
+     *
+     * @param int $idProduct  ID local del producto en la slave
+     */
+    public static function setProductTypeCombinations($idProduct)
+    {
+        $cols = self::getTableColumns(_DB_PREFIX_ . 'product');
+        if (!in_array('product_type', $cols)) {
+            return; // PS 1.6 / 1.7 — no existe la columna
+        }
+        Db::getInstance()->update('product', ['product_type' => 'combinations'],
+            'id_product = ' . (int)$idProduct
+        );
+        // También en product_shop si existe
+        $shopCols = self::getTableColumns(_DB_PREFIX_ . 'product_shop');
+        if (in_array('product_type', $shopCols)) {
+            Db::getInstance()->update('product_shop', ['product_type' => 'combinations'],
+                'id_product = ' . (int)$idProduct
+            );
+        }
     }
 
     /**

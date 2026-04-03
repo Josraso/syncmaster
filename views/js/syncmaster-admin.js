@@ -103,6 +103,17 @@
         });
 
         /* ---- Sync inicial: procesar lote ---- */
+        var smSyncActive = false; // bandera para beforeunload
+
+        window.addEventListener('beforeunload', function (e) {
+            if (smSyncActive) {
+                var msg = 'La sincronización está en curso. Si sales ahora se interrumpirá y tendrás que reanudarla manualmente.';
+                e.preventDefault();
+                e.returnValue = msg;
+                return msg;
+            }
+        });
+
         document.querySelectorAll('.sm-process-btn').forEach(function (btn) {
             btn.addEventListener('click', function () {
                 var jobId   = this.dataset.job;
@@ -111,6 +122,7 @@
                 var row     = thisBtn.closest('tr');
                 thisBtn.disabled    = true;
                 thisBtn.textContent = 'Procesando...';
+                smSyncActive = true;
 
                 function processBatch() {
                     fetch(syncUrl + '&sm_ajax=nextBatch&id_job=' + jobId, {
@@ -120,9 +132,11 @@
                     .then(function (r) { return r.json(); })
                     .then(function (data) {
                         if (data.done) {
+                            smSyncActive = false;
                             thisBtn.textContent = data.progress === 100 ? '\u2713 Completado' : '\u23F8 Pausado';
                             setTimeout(function () { location.reload(); }, 1500);
                         } else if (data.paused) {
+                            smSyncActive = false;
                             // Error real — dejar el botón de Reanudar visible
                             thisBtn.textContent = '\u23F8 Pausado \u2014 Error';
                             setTimeout(function () { location.reload(); }, 1500);

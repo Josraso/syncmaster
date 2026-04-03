@@ -155,6 +155,12 @@ class SyncMasterImporter
             }
         }
 
+        // product_type (PS 8+): 'standard', 'combinations', 'pack', 'virtual'
+        // Solo asignamos si la propiedad existe en el objeto (evita error en PS 1.6/1.7)
+        if (!empty($data['product_type']) && property_exists($product, 'product_type')) {
+            $product->product_type = $data['product_type'];
+        }
+
         // Precio
         if (isset($data['price']) && $this->shouldWrite('price', $data['price'], $savedHashes)) {
             $product->price = (float)$data['price'];
@@ -254,14 +260,16 @@ class SyncMasterImporter
         // -----------------------------------------------------------------
         // Combinaciones
         // -----------------------------------------------------------------
-        if (isset($data['combinations']) && $this->shouldWrite('attributes', null, $savedHashes)) {
+        if (!empty($data['combinations']) && $this->shouldWrite('attributes', null, $savedHashes)) {
             try {
                 $this->importCombinations($product, $data['combinations']);
+                // En PS 8+, marcar el producto como tipo 'combinations' para que el panel
+                // las muestre correctamente (el tipo no se actualiza automáticamente via SQL)
+                SyncMasterVersionCompat::setProductTypeCombinations($localId);
             } catch (Exception $e) {
-                // Error en combinaciones no mata el producto; el error se ignora silenciosamente
-                // para que el producto base quede importado aunque las combinaciones fallen
+                // Error en combinaciones no mata el producto base
             } catch (Error $e) {
-                // PHP 7+ fatal errors (métodos no existentes, etc.)
+                // PHP 7+ fatal errors
             }
         }
 

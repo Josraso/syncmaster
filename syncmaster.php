@@ -783,10 +783,11 @@ class SyncMaster extends Module
         ) ?: [];
 
         return $this->smFetch('connections_list.tpl', [
-            'connections' => $connections,
-            'link_add'    => $listUrl . '&sm_action=add',
-            'current_url' => $listUrl,
-            'sm_base_url' => $baseUrl,
+            'connections'    => $connections,
+            'link_add'       => $listUrl . '&sm_action=add',
+            'current_url'    => $listUrl,
+            'sm_base_url'    => $baseUrl,
+            'link_dashboard' => $baseUrl,
         ]);
     }
 
@@ -830,6 +831,7 @@ class SyncMaster extends Module
             'form_action'      => $listUrl . '&sm_action=save'
                 . ($idConn ? '&id_connection=' . $idConn : ''),
             'link_list'        => $listUrl,
+            'link_dashboard'   => $baseUrl,
             'errors'           => $errors,
             'role_options'     => [
                 ['value' => 'free',   'label' => $this->l('Free ID — La hija puede tener su propio catálogo')],
@@ -1014,9 +1016,15 @@ class SyncMaster extends Module
             . ' ORDER BY j.date_add DESC LIMIT 20'
         ) ?: [];
 
+        // Detectar si hay jobs en ejecución para mostrar el aviso de no salir
+        $runningJobs = array_filter($jobs, function ($j) {
+            return $j['status'] === 'running';
+        });
+
         return $this->smFetch('initial_sync.tpl', [
             'connections'  => $connections,
             'jobs'         => $jobs,
+            'running_jobs' => $runningJobs,
             'errors'       => $errors,
             'master_stats' => [
                 'products'   => (int)Db::getInstance()->getValue(

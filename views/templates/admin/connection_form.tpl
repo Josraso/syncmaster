@@ -12,9 +12,13 @@
     {* ================================================================ *}
     {* MODO MASTER — añades una tienda HIJA que va a recibir tus cambios *}
     {* ================================================================ *}
+    <a href="{$link_list}" class="btn btn-default btn-sm" style="margin-bottom:8px">
+        <i class="icon-arrow-left"></i> Volver a conexiones
+    </a>
+
     {if $is_master}
 
-    <h2>⇄ {if $is_edit}Editar tienda hija: <strong>{$connection.name|escape:'html'}</strong>{else}Conectar una tienda hija (slave){/if}</h2>
+    <h2 style="margin-top:4px">⇄ {if $is_edit}Editar tienda hija: <strong>{$connection.name|escape:'html'}</strong>{else}Conectar una tienda hija (slave){/if}</h2>
 
     {if !$is_edit}
     <div class="row" style="margin-bottom:20px">

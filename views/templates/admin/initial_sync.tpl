@@ -2,7 +2,18 @@
  * SyncMaster Pro — Sync inicial masivo
  *}
 <div class="syncmaster-wrap">
-    <h2>⇄ Sincronización inicial masiva</h2>
+    <a href="{$link_dashboard}" class="btn btn-default btn-sm" style="margin-bottom:8px">
+        <i class="icon-arrow-left"></i> Panel
+    </a>
+    <h2 style="margin-top:4px">⇄ Sincronización inicial masiva</h2>
+
+    {if !empty($running_jobs)}
+        <div class="alert alert-warning" style="margin-bottom:12px">
+            <strong><i class="icon-warning-sign"></i> Sync en curso</strong> —
+            No cierres ni abandones esta página hasta que termine.
+            Si sales, el sync se pausará y tendrás que reanudarlo manualmente.
+        </div>
+    {/if}
 
     {if !empty($errors)}
         {foreach $errors as $err}
