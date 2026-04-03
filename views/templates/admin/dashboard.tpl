@@ -33,13 +33,6 @@
                         </option>
                     </select>
                 </div>
-                <div class="form-group" style="margin-right:15px;margin-left:20px">
-                    <label style="margin-right:8px"><strong>Borrar productos en slave:</strong></label>
-                    <select name="syncmaster_delete_products" class="form-control">
-                        <option value="1" {if $syncmaster_delete_products}selected{/if}>Sí — borrar cuando se borre en master</option>
-                        <option value="0" {if !$syncmaster_delete_products}selected{/if}>No — conservar aunque se borre en master</option>
-                    </select>
-                </div>
                 <button type="submit" name="submitSyncMasterSettings" class="btn btn-primary">
                     <i class="icon-save"></i> Guardar configuración
                 </button>
@@ -47,7 +40,7 @@
             <p class="help-block" style="margin-top:8px;margin-bottom:0">
                 <strong>Master:</strong> instala el módulo aquí y añade la tienda hija en "Gestionar conexiones".<br>
                 <strong>Slave:</strong> instala el módulo en la tienda hija, copia la API Key y Secret que te dio el master.<br>
-                <strong>Borrar en slave:</strong> si está en "No", los productos eliminados en master se conservan en el slave.
+                <strong>Borrar en slave / Filtro de categorías:</strong> configúralos por conexión en "Gestionar conexiones".
             </p>
         </div>
     </div>

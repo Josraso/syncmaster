@@ -38,7 +38,7 @@ class SyncMasterInitialJob
      * Crea un nuevo job de sync inicial para una conexión.
      * Si ya existe uno pausado, lo reanuda.
      */
-    public static function startOrResume($idConnection)
+    public static function startOrResume($idConnection, $skipImages = false)
     {
         // Comprobar si hay un job pausado o en curso
         $existing = Db::getInstance()->getRow(
@@ -58,9 +58,10 @@ class SyncMasterInitialJob
         }
 
         // Contar entidades del master para calcular lotes
-        $connection  = self::getConnection($idConnection);
-        $batchSize   = (int)(isset($connection['batch_size']) ? $connection['batch_size'] : 50);
-        $totalProds  = self::countProducts();
+        $connection   = self::getConnection($idConnection);
+        $batchSize    = (int)(isset($connection['batch_size']) ? $connection['batch_size'] : 50);
+        $catFilter    = isset($connection['category_filter']) ? $connection['category_filter'] : '';
+        $totalProds   = self::countProducts($catFilter);
         $totalBatches = ceil($totalProds / $batchSize)
             + ceil(self::countCategories() / $batchSize)
             + ceil(self::countManufacturers() / $batchSize)
@@ -76,6 +77,7 @@ class SyncMasterInitialJob
             'processed_items' => 0,
             'failed_items'    => 0,
             'batch_size'      => $batchSize,
+            'skip_images'     => $skipImages ? 1 : 0,
             'progress_pct'    => 0,
             'started_at'      => date('Y-m-d H:i:s'),
             'last_activity'   => date('Y-m-d H:i:s'),
@@ -98,7 +100,8 @@ class SyncMasterInitialJob
     public static function processNextBatch($idJob)
     {
         $job = Db::getInstance()->getRow(
-            'SELECT j.*, c.remote_url, c.api_key, c.api_secret, c.batch_size, c.timeout, c.batch_delay
+            'SELECT j.*, c.remote_url, c.api_key, c.api_secret, c.batch_size, c.timeout,
+                    c.batch_delay, c.category_filter
              FROM `' . _DB_PREFIX_ . 'sync_initial_job` j
              INNER JOIN `' . _DB_PREFIX_ . 'sync_connections` c
                  ON c.id_connection = j.id_connection
@@ -129,18 +132,20 @@ class SyncMasterInitialJob
             'last_activity' => date('Y-m-d H:i:s'),
         ], 'id_job = ' . (int)$idJob);
 
-        $phase     = $job['phase'];
-        $batchSize = (int)$job['batch_size'];
-        $offset    = (int)$job['processed_items']; // dentro de la fase actual
+        $phase       = $job['phase'];
+        $batchSize   = (int)$job['batch_size'];
+        $offset      = (int)$job['processed_items']; // dentro de la fase actual
+        $skipImages  = !empty($job['skip_images']);
+        $catFilter   = isset($job['category_filter']) ? $job['category_filter'] : '';
 
         $start = microtime(true);
 
         // Obtener el lote de entidades según la fase
-        $items = self::getItemsBatch($phase, $offset, $batchSize);
+        $items = self::getItemsBatch($phase, $offset, $batchSize, $catFilter);
 
         // Si no hay más items en esta fase → pasar a la siguiente
         if (empty($items)) {
-            $nextPhase = self::getNextPhase($phase);
+            $nextPhase = self::getNextPhase($phase, $skipImages);
 
             if ($nextPhase === null) {
                 // Todas las fases completadas
@@ -259,8 +264,21 @@ class SyncMasterInitialJob
     // OBTENER ITEMS POR FASE
     // =========================================================================
 
-    private static function getItemsBatch($phase, $offset, $limit)
+    private static function getItemsBatch($phase, $offset, $limit, $categoryFilter = '')
     {
+        // Normalizar filtro de categorías
+        $catIds = [];
+        if (!empty($categoryFilter)) {
+            foreach (explode(',', $categoryFilter) as $cid) {
+                $cid = (int)$cid;
+                if ($cid > 0) {
+                    $catIds[] = $cid;
+                }
+            }
+        }
+        $hasCatFilter = !empty($catIds);
+        $catIn        = $hasCatFilter ? implode(',', $catIds) : '';
+
         switch ($phase) {
             case self::PHASE_CATEGORIES:
                 return Db::getInstance()->executeS(
@@ -293,6 +311,17 @@ class SyncMasterInitialJob
                 );
 
             case self::PHASE_PRODUCTS:
+                if ($hasCatFilter) {
+                    return Db::getInstance()->executeS(
+                        'SELECT DISTINCT p.id_product
+                         FROM `' . _DB_PREFIX_ . 'product` p
+                         INNER JOIN `' . _DB_PREFIX_ . 'category_product` cp
+                             ON cp.id_product = p.id_product
+                         WHERE cp.id_category IN (' . $catIn . ')
+                         ORDER BY p.id_product ASC
+                         LIMIT ' . (int)$limit . ' OFFSET ' . (int)$offset
+                    );
+                }
                 return Db::getInstance()->executeS(
                     'SELECT id_product FROM `' . _DB_PREFIX_ . 'product`
                      ORDER BY id_product ASC
@@ -302,6 +331,18 @@ class SyncMasterInitialJob
             case self::PHASE_IMAGES:
                 // Imágenes: la slave las descarga directamente via URL
                 // Aquí solo mandamos los metadatos + URL
+                if ($hasCatFilter) {
+                    return Db::getInstance()->executeS(
+                        'SELECT i.id_image, i.id_product
+                         FROM `' . _DB_PREFIX_ . 'image` i
+                         INNER JOIN `' . _DB_PREFIX_ . 'category_product` cp
+                             ON cp.id_product = i.id_product
+                         WHERE cp.id_category IN (' . $catIn . ')
+                         GROUP BY i.id_image
+                         ORDER BY i.id_product ASC, i.position ASC
+                         LIMIT ' . (int)$limit . ' OFFSET ' . (int)$offset
+                    );
+                }
                 return Db::getInstance()->executeS(
                     'SELECT id_image, id_product FROM `' . _DB_PREFIX_ . 'image`
                      ORDER BY id_product ASC, position ASC
@@ -432,13 +473,17 @@ class SyncMasterInitialJob
     // HELPERS
     // =========================================================================
 
-    private static function getNextPhase($currentPhase)
+    private static function getNextPhase($currentPhase, $skipImages = false)
     {
-        $idx = array_search($currentPhase, self::PHASES);
-        if ($idx === false || $idx >= count(self::PHASES) - 1) {
+        $phases = self::PHASES;
+        if ($skipImages) {
+            $phases = array_values(array_diff($phases, [self::PHASE_IMAGES, self::PHASE_VERIFICATION]));
+        }
+        $idx = array_search($currentPhase, $phases);
+        if ($idx === false || $idx >= count($phases) - 1) {
             return null;
         }
-        return self::PHASES[$idx + 1];
+        return $phases[$idx + 1];
     }
 
     private static function calcProgress($job, $currentPhase)
@@ -494,8 +539,26 @@ class SyncMasterInitialJob
         }
     }
 
-    private static function countProducts()
+    private static function countProducts($categoryFilter = '')
     {
+        $catIds = [];
+        if (!empty($categoryFilter)) {
+            foreach (explode(',', $categoryFilter) as $cid) {
+                $cid = (int)$cid;
+                if ($cid > 0) {
+                    $catIds[] = $cid;
+                }
+            }
+        }
+        if (!empty($catIds)) {
+            return (int)Db::getInstance()->getValue(
+                'SELECT COUNT(DISTINCT p.id_product)
+                 FROM `' . _DB_PREFIX_ . 'product` p
+                 INNER JOIN `' . _DB_PREFIX_ . 'category_product` cp
+                     ON cp.id_product = p.id_product
+                 WHERE cp.id_category IN (' . implode(',', $catIds) . ')'
+            );
+        }
         return (int)Db::getInstance()->getValue(
             'SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'product`'
         );

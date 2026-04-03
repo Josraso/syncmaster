@@ -67,6 +67,12 @@
                                class="btn btn-default btn-xs" title="{if $conn.active}Desactivar{else}Activar{/if}">
                                 <i class="icon-{if $conn.active}pause{else}play{/if}"></i>
                             </a>
+                            <a href="{$current_url}&sm_action=start_no_images&id_connection={$conn.id_connection}"
+                               class="btn btn-warning btn-xs"
+                               onclick="return confirm('¿Iniciar sync total sin imágenes para «{$conn.name|escape:'html'}»?')"
+                               title="Sync total sin imágenes">
+                                <i class="icon-refresh"></i> Sin imgs
+                            </a>
                             <a href="{$current_url}&sm_action=delete&id_connection={$conn.id_connection}"
                                class="btn btn-danger btn-xs"
                                onclick="return confirm('¿Eliminar esta conexión?')" title="Eliminar">

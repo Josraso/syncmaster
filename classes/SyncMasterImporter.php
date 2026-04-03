@@ -94,8 +94,12 @@ class SyncMasterImporter
         $isNew     = ($localId === 0);
 
         if ($action === 'delete') {
-            // Si la opción de borrado está desactivada, ignorar silenciosamente
-            if (!Configuration::get('SYNCMASTER_DELETE_PRODUCTS')) {
+            // Leer delete_on_slave de la conexión (por defecto 1 si no existe)
+            $deleteOnSlave = (int)Db::getInstance()->getValue(
+                'SELECT delete_on_slave FROM `' . _DB_PREFIX_ . 'sync_connections`
+                 WHERE id_connection = ' . (int)$this->idConnection
+            );
+            if (!$deleteOnSlave) {
                 return ['success' => true, 'skipped' => true];
             }
             return $this->deleteProduct($masterId, $localId);

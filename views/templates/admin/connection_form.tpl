@@ -148,6 +148,13 @@
                         <div class="checkbox"><label><input type="checkbox" name="sync_stock" value="1" {if !$is_edit || $connection.sync_stock}checked{/if}> Stock</label></div>
                         <div class="checkbox"><label><input type="checkbox" name="sync_prices" value="1" {if !$is_edit || $connection.sync_prices}checked{/if}> Precios</label></div>
                         <div class="checkbox"><label><input type="checkbox" name="sync_images" value="1" {if !$is_edit || $connection.sync_images}checked{/if}> Imágenes</label></div>
+                        <div class="checkbox">
+                            <label>
+                                <input type="checkbox" name="delete_on_slave" value="1"
+                                    {if !$is_edit || $connection.delete_on_slave}checked{/if}>
+                                <strong>Borrar en slave cuando se borre en master</strong>
+                            </label>
+                        </div>
                         <div class="checkbox"><label><input type="checkbox" name="active" value="1" {if !$is_edit || $connection.active}checked{/if}> <strong>Conexión activa</strong></label></div>
                     </div>
                     <div class="col-md-4">
@@ -170,6 +177,27 @@
                         </div>
                     </div>
                 </div>
+
+                {* Filtro de categorías *}
+                {if !empty($all_categories)}
+                <hr style="margin:20px 0">
+                <h4 style="margin-top:0">Filtro de categorías <small class="text-muted">(sync inicial)</small></h4>
+                <p class="help-block" style="margin-top:0">
+                    Deja todo sin marcar para sincronizar <strong>todos</strong> los productos.
+                    Marca categorías para sincronizar solo esos productos en el sync inicial.
+                </p>
+                <div style="max-height:220px;overflow-y:auto;border:1px solid #ddd;padding:10px;border-radius:4px;background:#fafafa">
+                    {foreach $all_categories as $cat}
+                        <div class="checkbox" style="margin:{($cat.level_depth - 1) * 16}px 0 2px {($cat.level_depth - 1) * 16}px">
+                            <label>
+                                <input type="checkbox" name="category_filter[]" value="{$cat.id_category}"
+                                    {if in_array($cat.id_category, $selected_categories)}checked{/if}>
+                                {$cat.name|escape:'html'}
+                            </label>
+                        </div>
+                    {/foreach}
+                </div>
+                {/if}
             </div>
             <div class="panel-footer">
                 <button type="submit" class="btn btn-primary btn-lg">

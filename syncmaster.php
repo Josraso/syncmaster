@@ -5,7 +5,7 @@
  * Compatible: PrestaShop 1.6.x → 9.x
  *
  * @author    SyncMaster Pro
- * @version   1.0.1
+ * @version   1.1.0
  * @license   MIT
  */
 
@@ -30,7 +30,7 @@ class SyncMaster extends Module
     {
         $this->name          = 'syncmaster';
         $this->tab           = 'administration';
-        $this->version       = '1.0.1';
+        $this->version       = '1.1.0';
         $this->author        = 'SyncMaster Pro';
         $this->need_instance = 0;
         $this->bootstrap     = true;
@@ -98,6 +98,8 @@ class SyncMaster extends Module
                 `sync_stock`    TINYINT(1) NOT NULL DEFAULT 1,
                 `sync_prices`   TINYINT(1) NOT NULL DEFAULT 1,
                 `sync_images`   TINYINT(1) NOT NULL DEFAULT 1,
+                `delete_on_slave` TINYINT(1) NOT NULL DEFAULT 1,
+                `category_filter` TEXT DEFAULT NULL,
                 `batch_size`    SMALLINT(5) NOT NULL DEFAULT 50,
                 `batch_delay`   SMALLINT(5) NOT NULL DEFAULT 1,
                 `timeout`       SMALLINT(5) NOT NULL DEFAULT 30,
@@ -179,6 +181,7 @@ class SyncMaster extends Module
                 `processed_items` INT(11) NOT NULL DEFAULT 0,
                 `failed_items`    INT(11) NOT NULL DEFAULT 0,
                 `batch_size`      SMALLINT(5) NOT NULL DEFAULT 50,
+                `skip_images`     TINYINT(1) NOT NULL DEFAULT 0,
                 `progress_pct`    TINYINT(3) NOT NULL DEFAULT 0,
                 `started_at`      DATETIME DEFAULT NULL,
                 `last_activity`   DATETIME DEFAULT NULL,
@@ -221,6 +224,47 @@ class SyncMaster extends Module
         foreach (['sync_connections','sync_field_config','sync_queue','sync_log',
                   'sync_id_map','sync_initial_job','sync_initial_batch'] as $t) {
             Db::getInstance()->execute('DROP TABLE IF EXISTS `' . _DB_PREFIX_ . $t . '`');
+        }
+    }
+
+    /**
+     * Migración incremental: añade columnas nuevas a tablas existentes.
+     * Se llama en cada carga del panel admin; las columnas ya existentes se ignoran.
+     */
+    private function upgradeSchema()
+    {
+        $p  = _DB_PREFIX_;
+        $db = Db::getInstance();
+
+        $migrations = [
+            'sync_connections' => [
+                'delete_on_slave' => "ALTER TABLE `{$p}sync_connections`
+                    ADD COLUMN `delete_on_slave` TINYINT(1) NOT NULL DEFAULT 1 AFTER `sync_images`",
+                'category_filter' => "ALTER TABLE `{$p}sync_connections`
+                    ADD COLUMN `category_filter` TEXT DEFAULT NULL AFTER `delete_on_slave`",
+            ],
+            'sync_initial_job' => [
+                'skip_images' => "ALTER TABLE `{$p}sync_initial_job`
+                    ADD COLUMN `skip_images` TINYINT(1) NOT NULL DEFAULT 0 AFTER `batch_size`",
+            ],
+        ];
+
+        foreach ($migrations as $table => $columns) {
+            $existing = [];
+            $rows = $db->executeS(
+                "SELECT COLUMN_NAME FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '" . pSQL($p . $table) . "'"
+            );
+            if ($rows) {
+                foreach ($rows as $row) {
+                    $existing[] = strtolower($row['COLUMN_NAME']);
+                }
+            }
+            foreach ($columns as $col => $sql) {
+                if (!in_array(strtolower($col), $existing)) {
+                    $db->execute($sql);
+                }
+            }
         }
     }
 
@@ -579,7 +623,6 @@ class SyncMaster extends Module
         Configuration::updateValue('SYNCMASTER_ROLE',            self::ROLE_MASTER);
         Configuration::updateValue('SYNCMASTER_SYNC_STOCK',      1);
         Configuration::updateValue('SYNCMASTER_SYNC_IMAGES',     1);
-        Configuration::updateValue('SYNCMASTER_DELETE_PRODUCTS', 1);
         Configuration::updateValue('SYNCMASTER_CRON_TOKEN',      md5(uniqid('syncmaster_', true)));
         Configuration::updateValue('SYNCMASTER_QUEUE_WORKER',    1);
         Configuration::updateValue('SYNCMASTER_LOG_RETENTION',   30);
@@ -589,7 +632,6 @@ class SyncMaster extends Module
     {
         foreach ([
             'SYNCMASTER_ROLE', 'SYNCMASTER_SYNC_STOCK', 'SYNCMASTER_SYNC_IMAGES',
-            'SYNCMASTER_DELETE_PRODUCTS',
             'SYNCMASTER_CRON_TOKEN', 'SYNCMASTER_QUEUE_WORKER', 'SYNCMASTER_LOG_RETENTION',
         ] as $key) {
             Configuration::deleteByName($key);
@@ -607,6 +649,7 @@ class SyncMaster extends Module
      */
     public function getContent()
     {
+        $this->upgradeSchema();
         $this->smLoadClasses();
 
         $this->context->controller->addCSS($this->_path . 'views/css/syncmaster-admin.css');
@@ -774,9 +817,6 @@ class SyncMaster extends Module
                 $role = self::ROLE_MASTER;
             }
             Configuration::updateValue('SYNCMASTER_ROLE', $role);
-            Configuration::updateValue('SYNCMASTER_DELETE_PRODUCTS',
-                Tools::getValue('syncmaster_delete_products', 0) ? 1 : 0
-            );
             $confirm = $this->l('Configuración guardada correctamente.');
         }
 
@@ -800,7 +840,6 @@ class SyncMaster extends Module
             'syncmaster_recent_success'   => [],
             'syncmaster_cron_url'         => $cronUrl,
             'syncmaster_role'             => Configuration::get('SYNCMASTER_ROLE'),
-            'syncmaster_delete_products'  => (bool)Configuration::get('SYNCMASTER_DELETE_PRODUCTS'),
             'syncmaster_ping_results'     => [],
             'syncmaster_ps_version'       => _PS_VERSION_,
             'syncmaster_module_version'   => $this->version,
@@ -850,6 +889,23 @@ class SyncMaster extends Module
                 }
                 Tools::redirectAdmin($listUrl);
                 return '';
+
+            case 'start_no_images':
+                if ($idConn) {
+                    $conn = Db::getInstance()->getRow(
+                        'SELECT * FROM `' . _DB_PREFIX_ . 'sync_connections`'
+                        . ' WHERE id_connection = ' . $idConn . ' AND active = 1'
+                    );
+                    if ($conn) {
+                        $api   = new SyncMasterApi($conn['remote_url'], $conn['api_key'], $conn['api_secret']);
+                        $shake = $api->handshake(['batch_size' => (int)$conn['batch_size']]);
+                        if ($shake['success']) {
+                            SyncMasterInitialJob::startOrResume($idConn, true);
+                        }
+                    }
+                }
+                Tools::redirectAdmin($baseUrl . '&sm_section=sync');
+                return '';
         }
 
         $connections = Db::getInstance()->executeS(
@@ -870,19 +926,21 @@ class SyncMaster extends Module
         $listUrl    = $baseUrl . '&sm_section=connections';
         // Defaults for all keys the template accesses (avoids "Undefined array key" in PS9/PHP8)
         $connection = [
-            'id_connection' => null,
-            'name'          => '',
-            'remote_url'    => '',
-            'api_key'       => '',
-            'api_secret'    => '',
-            'id_mode'       => 'free',
-            'sync_stock'    => 1,
-            'sync_prices'   => 1,
-            'sync_images'   => 1,
-            'batch_size'    => 50,
-            'batch_delay'   => 1,
-            'timeout'       => 30,
-            'active'        => 1,
+            'id_connection'  => null,
+            'name'           => '',
+            'remote_url'     => '',
+            'api_key'        => '',
+            'api_secret'     => '',
+            'id_mode'        => 'free',
+            'sync_stock'     => 1,
+            'sync_prices'    => 1,
+            'sync_images'    => 1,
+            'delete_on_slave'=> 1,
+            'category_filter'=> '',
+            'batch_size'     => 50,
+            'batch_delay'    => 1,
+            'timeout'        => 30,
+            'active'         => 1,
         ];
         if ($idConn) {
             $row = Db::getInstance()->getRow(
@@ -896,18 +954,36 @@ class SyncMaster extends Module
         $storeRole = Configuration::get('SYNCMASTER_ROLE') ?: self::ROLE_MASTER;
         $isMaster  = in_array($storeRole, [self::ROLE_MASTER, self::ROLE_BOTH]);
 
+        // Categorías disponibles para el filtro (solo modo master)
+        $idLang = (int)Configuration::get('PS_LANG_DEFAULT');
+        $allCategories = $isMaster ? (Db::getInstance()->executeS(
+            'SELECT c.id_category, cl.name, c.level_depth
+             FROM `' . _DB_PREFIX_ . 'category` c
+             INNER JOIN `' . _DB_PREFIX_ . 'category_lang` cl
+                 ON cl.id_category = c.id_category AND cl.id_lang = ' . $idLang . '
+             WHERE c.id_category > 2 AND c.active = 1
+             ORDER BY c.level_depth ASC, cl.name ASC'
+        ) ?: []) : [];
+
+        $selectedCategories = [];
+        if (!empty($connection['category_filter'])) {
+            $selectedCategories = array_map('intval', explode(',', $connection['category_filter']));
+        }
+
         return $this->smFetch('connection_form.tpl', [
-            'connection'       => $connection,
-            'new_credentials'  => (!$idConn && $isMaster) ? SyncMasterApi::generateCredentials() : [],
-            'is_edit'          => (bool)$idConn,
-            'store_role'       => $storeRole,
-            'is_master'        => $isMaster,
-            'form_action'      => $listUrl . '&sm_action=save'
+            'connection'          => $connection,
+            'new_credentials'     => (!$idConn && $isMaster) ? SyncMasterApi::generateCredentials() : [],
+            'is_edit'             => (bool)$idConn,
+            'store_role'          => $storeRole,
+            'is_master'           => $isMaster,
+            'form_action'         => $listUrl . '&sm_action=save'
                 . ($idConn ? '&id_connection=' . $idConn : ''),
-            'link_list'        => $listUrl,
-            'link_dashboard'   => $baseUrl,
-            'errors'           => $errors,
-            'role_options'     => [
+            'link_list'           => $listUrl,
+            'link_dashboard'      => $baseUrl,
+            'errors'              => $errors,
+            'all_categories'      => $allCategories,
+            'selected_categories' => $selectedCategories,
+            'role_options'        => [
                 ['value' => 'free',   'label' => $this->l('Free ID — La hija puede tener su propio catálogo')],
                 ['value' => 'shared', 'label' => $this->l('Shared ID — Réplica exacta (mismo ID de producto)')],
             ],
@@ -936,20 +1012,34 @@ class SyncMaster extends Module
             return $this->smConnectionForm($baseUrl, $idConn, $errors);
         }
 
+        // Categorías seleccionadas: array de enteros, guardar como CSV
+        $catFilter = [];
+        $postedCats = Tools::getValue('category_filter', []);
+        if (is_array($postedCats)) {
+            foreach ($postedCats as $cid) {
+                $cid = (int)$cid;
+                if ($cid > 0) {
+                    $catFilter[] = $cid;
+                }
+            }
+        }
+
         $data = [
-            'name'        => pSQL($name),
-            'remote_url'  => pSQL($remoteUrl),
-            'api_key'     => pSQL($apiKey),
-            'api_secret'  => pSQL($apiSecret),
-            'id_mode'     => in_array($idMode, ['shared','free']) ? $idMode : 'free',
-            'active'      => Tools::getValue('active', 0)      ? 1 : 0,
-            'sync_stock'  => Tools::getValue('sync_stock', 0)  ? 1 : 0,
-            'sync_prices' => Tools::getValue('sync_prices', 0) ? 1 : 0,
-            'sync_images' => Tools::getValue('sync_images', 0) ? 1 : 0,
-            'batch_size'  => max(10, min(200, (int)Tools::getValue('batch_size', 50))),
-            'batch_delay' => max(0,  min(30,  (int)Tools::getValue('batch_delay', 1))),
-            'timeout'     => max(10, min(120, (int)Tools::getValue('timeout', 30))),
-            'date_upd'    => $now,
+            'name'            => pSQL($name),
+            'remote_url'      => pSQL($remoteUrl),
+            'api_key'         => pSQL($apiKey),
+            'api_secret'      => pSQL($apiSecret),
+            'id_mode'         => in_array($idMode, ['shared','free']) ? $idMode : 'free',
+            'active'          => Tools::getValue('active', 0)          ? 1 : 0,
+            'sync_stock'      => Tools::getValue('sync_stock', 0)      ? 1 : 0,
+            'sync_prices'     => Tools::getValue('sync_prices', 0)     ? 1 : 0,
+            'sync_images'     => Tools::getValue('sync_images', 0)     ? 1 : 0,
+            'delete_on_slave' => Tools::getValue('delete_on_slave', 0) ? 1 : 0,
+            'category_filter' => pSQL(implode(',', $catFilter)),
+            'batch_size'      => max(10, min(200, (int)Tools::getValue('batch_size', 50))),
+            'batch_delay'     => max(0,  min(30,  (int)Tools::getValue('batch_delay', 1))),
+            'timeout'         => max(10, min(120, (int)Tools::getValue('timeout', 30))),
+            'date_upd'        => $now,
         ];
 
         if ($idConn) {
