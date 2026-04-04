@@ -191,6 +191,32 @@ class SyncMasterQueue
                 continue;
             }
 
+            // Si hay filtro de categorías, solo enviar productos que pertenezcan a alguna
+            // de las categorías configuradas. Los productos fuera del filtro se descartan
+            // silenciosamente (marcados como done).
+            if (
+                !empty($item['category_filter'])
+                && $item['entity_type'] === 'product'
+                && $item['action'] !== 'delete'
+            ) {
+                $catIds = array_filter(array_map('intval', explode(',', $item['category_filter'])));
+                if (!empty($catIds)) {
+                    $inFilter = (bool)Db::getInstance()->getValue(
+                        'SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'category_product`
+                         WHERE id_product = ' . (int)$item['entity_id'] . '
+                           AND id_category IN (' . implode(',', $catIds) . ')'
+                    );
+                    if (!$inFilter) {
+                        Db::getInstance()->update('sync_queue',
+                            ['status' => self::STATUS_DONE, 'date_done' => date('Y-m-d H:i:s')],
+                            'id_queue = ' . (int)$item['id_queue']
+                        );
+                        $stats['skipped']++;
+                        continue;
+                    }
+                }
+            }
+
             $start = microtime(true);
 
             try {
