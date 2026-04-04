@@ -147,7 +147,8 @@ class SyncMasterQueue
 
         $items = Db::getInstance()->executeS(
             'SELECT q.*, c.remote_url, c.api_key, c.api_secret, c.timeout, c.id_mode,
-                    COALESCE(c.delete_on_slave, 1) AS delete_on_slave
+                    COALESCE(c.delete_on_slave, 1) AS delete_on_slave,
+                    COALESCE(c.lang_filter, \'\') AS lang_filter
              FROM `' . _DB_PREFIX_ . 'sync_queue` q
              INNER JOIN `' . _DB_PREFIX_ . 'sync_connections` c
                  ON c.id_connection = q.id_connection AND c.active = 1
@@ -273,6 +274,7 @@ class SyncMasterQueue
     private static function buildPayload(array $item)
     {
         $fieldConfig = SyncMasterFieldConfig::getForConnection((int)$item['id_connection']);
+        $langFilter  = isset($item['lang_filter']) ? $item['lang_filter'] : '';
 
         switch ($item['entity_type']) {
             case 'product':
@@ -287,14 +289,15 @@ class SyncMasterQueue
                 }
                 $data = SyncMasterSerializer::serializeProduct(
                     (int)$item['entity_id'],
-                    $fieldConfig
+                    $fieldConfig,
+                    $langFilter
                 );
                 if (!$data) return null;
                 $data['action'] = $item['action'];
                 return json_encode($data);
 
             case 'category':
-                $data = SyncMasterSerializer::serializeCategory((int)$item['entity_id']);
+                $data = SyncMasterSerializer::serializeCategory((int)$item['entity_id'], $langFilter);
                 if (!$data) return null;
                 $data['action'] = $item['action'];
                 return json_encode($data);

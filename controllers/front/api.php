@@ -274,7 +274,8 @@ class SyncmasterApiModuleFrontController extends ModuleFrontController
         $importer = new SyncMasterImporter(
             $idConnection,
             $connection['id_mode'],
-            $fieldConfig
+            $fieldConfig,
+            isset($connection['lang_filter']) ? $connection['lang_filter'] : ''
         );
 
         try {
@@ -329,7 +330,8 @@ class SyncmasterApiModuleFrontController extends ModuleFrontController
         $importer = new SyncMasterImporter(
             $idConnection,
             $connection['id_mode'],
-            $fieldConfig
+            $fieldConfig,
+            isset($connection['lang_filter']) ? $connection['lang_filter'] : ''
         );
 
         try {

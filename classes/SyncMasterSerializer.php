@@ -24,10 +24,10 @@ class SyncMasterSerializer
      * @param  array $fieldConfig  Lista de campos habilitados (de sync_field_config)
      * @return array|null
      */
-    public static function serializeProduct($idProduct, array $fieldConfig = [])
+    public static function serializeProduct($idProduct, array $fieldConfig = [], $langFilter = '')
     {
         $idLang    = SyncMasterVersionCompat::getDefaultLangId();
-        $languages = SyncMasterVersionCompat::getSyncLanguages();
+        $languages = SyncMasterVersionCompat::getSyncLanguages($langFilter);
 
         $product = new Product((int)$idProduct, true, $idLang);
         if (!Validate::isLoadedObject($product)) {
@@ -429,9 +429,9 @@ class SyncMasterSerializer
     // CATEGORÍA
     // =========================================================================
 
-    public static function serializeCategory($idCategory)
+    public static function serializeCategory($idCategory, $langFilter = '')
     {
-        $languages = SyncMasterVersionCompat::getSyncLanguages();
+        $languages = SyncMasterVersionCompat::getSyncLanguages($langFilter);
         $idLang    = SyncMasterVersionCompat::getDefaultLangId();
 
         $category = new Category((int)$idCategory, $idLang);

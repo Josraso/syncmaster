@@ -101,7 +101,8 @@ class SyncMasterInitialJob
     {
         $job = Db::getInstance()->getRow(
             'SELECT j.*, c.remote_url, c.api_key, c.api_secret, c.batch_size, c.timeout,
-                    c.batch_delay, c.category_filter
+                    c.batch_delay, c.category_filter,
+                    COALESCE(c.lang_filter, \'\') AS lang_filter
              FROM `' . _DB_PREFIX_ . 'sync_initial_job` j
              INNER JOIN `' . _DB_PREFIX_ . 'sync_connections` c
                  ON c.id_connection = j.id_connection
@@ -137,6 +138,7 @@ class SyncMasterInitialJob
         $offset      = (int)$job['processed_items']; // dentro de la fase actual
         $skipImages  = !empty($job['skip_images']);
         $catFilter   = isset($job['category_filter']) ? $job['category_filter'] : '';
+        $langFilter  = isset($job['lang_filter']) ? $job['lang_filter'] : '';
 
         $start = microtime(true);
 
@@ -384,7 +386,8 @@ class SyncMasterInitialJob
         foreach ($items as $item) {
             switch ($phase) {
                 case self::PHASE_CATEGORIES:
-                    $data = SyncMasterSerializer::serializeCategory((int)$item['id_category']);
+                    $langFilter = isset($job['lang_filter']) ? $job['lang_filter'] : '';
+                    $data = SyncMasterSerializer::serializeCategory((int)$item['id_category'], $langFilter);
                     break;
 
                 case self::PHASE_MANUFACTURERS:
@@ -438,7 +441,8 @@ class SyncMasterInitialJob
                 case self::PHASE_PRODUCTS:
                     $data = SyncMasterSerializer::serializeProduct(
                         (int)$item['id_product'],
-                        $fieldConfig
+                        $fieldConfig,
+                        isset($job['lang_filter']) ? $job['lang_filter'] : ''
                     );
                     if ($data) {
                         // Aplicar regla de precio
