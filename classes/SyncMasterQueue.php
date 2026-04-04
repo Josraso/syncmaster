@@ -92,18 +92,44 @@ class SyncMasterQueue
             )
         );
 
+        $p = _DB_PREFIX_;
+
         foreach ($connections as $connection) {
-            Db::getInstance()->insert('sync_queue', [
-                'id_connection' => (int)$connection['id_connection'],
-                'entity_type'   => 'stock',
-                'entity_id'     => (int)$idProduct,
-                'action'        => 'update',
-                'payload'       => pSQL($payload, true),
-                'status'        => self::STATUS_PENDING,
-                'attempts'      => 0,
-                'next_retry'    => date('Y-m-d H:i:s'),
-                'date_add'      => date('Y-m-d H:i:s'),
-            ]);
+            $idConn = (int)$connection['id_connection'];
+            $idProd = (int)$idProduct;
+            $idAttr = (int)$idProductAttribute;
+
+            // UPSERT: si ya hay un item pending/processing para este producto+atributo,
+            // actualiza el payload (solo importa el stock más reciente).
+            // Esto evita que la cola crezca con cientos de actualizaciones del mismo item.
+            Db::getInstance()->execute(
+                'UPDATE `' . $p . 'sync_queue`
+                 SET `payload`    = \'' . pSQL($payload, true) . '\',
+                     `attempts`   = 0,
+                     `next_retry` = NOW(),
+                     `error_msg`  = NULL
+                 WHERE `id_connection`        = ' . $idConn . '
+                   AND `entity_type`          = \'stock\'
+                   AND `entity_id`            = ' . $idProd . '
+                   AND `id_product_attribute` = ' . $idAttr . '
+                   AND `status` IN (\'' . self::STATUS_PENDING . '\', \'' . self::STATUS_PROCESSING . '\')'
+            );
+
+            if (!Db::getInstance()->Affected_Rows()) {
+                // No existe fila previa → insertar nueva
+                Db::getInstance()->insert('sync_queue', [
+                    'id_connection'        => $idConn,
+                    'entity_type'          => 'stock',
+                    'entity_id'            => $idProd,
+                    'id_product_attribute' => $idAttr,
+                    'action'               => 'update',
+                    'payload'              => pSQL($payload, true),
+                    'status'               => self::STATUS_PENDING,
+                    'attempts'             => 0,
+                    'next_retry'           => date('Y-m-d H:i:s'),
+                    'date_add'             => date('Y-m-d H:i:s'),
+                ]);
+            }
         }
     }
 
@@ -118,42 +144,38 @@ class SyncMasterQueue
      * @param  int   $limit  Máximo de items a procesar en esta ejecución
      * @return array ['processed'=>int, 'failed'=>int, 'skipped'=>int]
      */
-    public static function processQueue($limit = 20)
+    public static function processQueue($limit = 50)
     {
         $stats = ['processed' => 0, 'failed' => 0, 'skipped' => 0];
 
-        // Asegurar que las columnas de migración existen (puede que upgradeSchema aún no haya corrido)
+        // Asegurar que las columnas de migración existen
         $p = _DB_PREFIX_;
-        $existingCols = array_column(
-            Db::getInstance()->executeS(
-                'SELECT COLUMN_NAME FROM information_schema.COLUMNS
-                 WHERE TABLE_SCHEMA = DATABASE()
-                   AND TABLE_NAME = \'' . pSQL($p . 'sync_connections') . '\''
-            ) ?: [],
-            'COLUMN_NAME'
-        );
-        $existingCols = array_map('strtolower', $existingCols);
-        $colMigrations = [
-            'delete_on_slave' => "ALTER TABLE `{$p}sync_connections` ADD COLUMN `delete_on_slave` TINYINT(1) NOT NULL DEFAULT 1 AFTER `sync_images`",
-            'category_filter' => "ALTER TABLE `{$p}sync_connections` ADD COLUMN `category_filter` TEXT DEFAULT NULL AFTER `delete_on_slave`",
-            'lang_filter'     => "ALTER TABLE `{$p}sync_connections` ADD COLUMN `lang_filter` VARCHAR(255) DEFAULT NULL AFTER `category_filter`",
-        ];
-        foreach ($colMigrations as $col => $sql) {
-            if (!in_array($col, $existingCols)) {
-                Db::getInstance()->execute($sql);
-            }
-        }
-        unset($existingCols, $colMigrations, $col, $sql, $p);
+        self::runInlineMigrations($p);
 
+        // =====================================================================
+        // FASE 1 — Stock: enviar TODOS los items pending en lotes por conexión.
+        // El stock es idempotente y muy ligero → un solo HTTP request por lote
+        // en vez de uno por item. Esto reduce 4000 requests a ~10.
+        // =====================================================================
+        $stockStats = self::processStockBatch($p);
+        $stats['processed'] += $stockStats['processed'];
+        $stats['failed']    += $stockStats['failed'];
+        $stats['skipped']   += $stockStats['skipped'];
+
+        // =====================================================================
+        // FASE 2 — Otros items (productos, categorías, etc.): hasta $limit items,
+        // procesados individualmente porque son pesados (payload grande).
+        // =====================================================================
         $items = Db::getInstance()->executeS(
             'SELECT q.*, c.remote_url, c.api_key, c.api_secret, c.timeout, c.id_mode,
                     COALESCE(c.delete_on_slave, 1) AS delete_on_slave,
                     COALESCE(c.lang_filter, \'\') AS lang_filter,
                     COALESCE(c.category_filter, \'\') AS category_filter
-             FROM `' . _DB_PREFIX_ . 'sync_queue` q
-             INNER JOIN `' . _DB_PREFIX_ . 'sync_connections` c
+             FROM `' . $p . 'sync_queue` q
+             INNER JOIN `' . $p . 'sync_connections` c
                  ON c.id_connection = q.id_connection AND c.active = 1
              WHERE q.status = \'' . self::STATUS_PENDING . '\'
+               AND q.entity_type != \'stock\'
                AND q.next_retry <= NOW()
              ORDER BY q.date_add ASC
              LIMIT ' . (int)$limit
@@ -338,6 +360,158 @@ class SyncMasterQueue
                 // Para atributos, características, etc. se podría ampliar aquí
                 return null;
         }
+    }
+
+    // =========================================================================
+    // MIGRACIONES INLINE
+    // =========================================================================
+
+    private static function runInlineMigrations($p)
+    {
+        // sync_connections
+        $connCols = array_map('strtolower', array_column(
+            Db::getInstance()->executeS(
+                'SELECT COLUMN_NAME FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE()
+                   AND TABLE_NAME = \'' . pSQL($p . 'sync_connections') . '\''
+            ) ?: [], 'COLUMN_NAME'
+        ));
+        $connMigrations = [
+            'delete_on_slave' => "ALTER TABLE `{$p}sync_connections` ADD COLUMN `delete_on_slave` TINYINT(1) NOT NULL DEFAULT 1 AFTER `sync_images`",
+            'category_filter' => "ALTER TABLE `{$p}sync_connections` ADD COLUMN `category_filter` TEXT DEFAULT NULL AFTER `delete_on_slave`",
+            'lang_filter'     => "ALTER TABLE `{$p}sync_connections` ADD COLUMN `lang_filter` VARCHAR(255) DEFAULT NULL AFTER `category_filter`",
+        ];
+        foreach ($connMigrations as $col => $sql) {
+            if (!in_array($col, $connCols)) {
+                Db::getInstance()->execute($sql);
+            }
+        }
+
+        // sync_queue: nueva columna para deduplicación de stock
+        $queueCols = array_map('strtolower', array_column(
+            Db::getInstance()->executeS(
+                'SELECT COLUMN_NAME FROM information_schema.COLUMNS
+                 WHERE TABLE_SCHEMA = DATABASE()
+                   AND TABLE_NAME = \'' . pSQL($p . 'sync_queue') . '\''
+            ) ?: [], 'COLUMN_NAME'
+        ));
+        if (!in_array('id_product_attribute', $queueCols)) {
+            Db::getInstance()->execute(
+                "ALTER TABLE `{$p}sync_queue`
+                 ADD COLUMN `id_product_attribute` INT(11) NOT NULL DEFAULT 0 AFTER `entity_id`,
+                 ADD KEY `idx_stock_dedup` (`id_connection`, `entity_type`, `entity_id`, `id_product_attribute`, `status`)"
+            );
+        }
+    }
+
+    // =========================================================================
+    // STOCK EN LOTE — FAST PATH
+    // =========================================================================
+
+    /**
+     * Recoge TODOS los items de stock pendientes, los agrupa por conexión y los
+     * envía en lotes al endpoint /batch del slave.
+     * Coste: ~1 petición HTTP por cada 200 items (en lugar de 1 por item).
+     */
+    private static function processStockBatch($p)
+    {
+        $stats = ['processed' => 0, 'failed' => 0, 'skipped' => 0];
+
+        $items = Db::getInstance()->executeS(
+            'SELECT q.id_queue, q.id_connection, q.entity_id, q.id_product_attribute,
+                    q.payload, q.attempts, q.action, q.error_msg,
+                    c.remote_url, c.api_key, c.api_secret, c.timeout
+             FROM `' . $p . 'sync_queue` q
+             INNER JOIN `' . $p . 'sync_connections` c
+                 ON c.id_connection = q.id_connection AND c.active = 1
+             WHERE q.status = \'' . self::STATUS_PENDING . '\'
+               AND q.entity_type = \'stock\'
+               AND q.next_retry <= NOW()
+             ORDER BY q.id_connection ASC, q.date_add ASC'
+        ) ?: [];
+
+        if (empty($items)) {
+            return $stats;
+        }
+
+        // Agrupar por conexión
+        $byConn = [];
+        foreach ($items as $item) {
+            $byConn[(int)$item['id_connection']][] = $item;
+        }
+
+        $batchSize = 200; // items de stock por petición HTTP
+
+        foreach ($byConn as $idConn => $connItems) {
+            $connRef = $connItems[0];
+            $api     = new SyncMasterApi(
+                $connRef['remote_url'],
+                $connRef['api_key'],
+                $connRef['api_secret']
+            );
+            $timeout = max((int)($connRef['timeout'] ?: 30), 30);
+
+            // Dividir en trozos de $batchSize
+            $chunks   = array_chunk($connItems, $batchSize);
+            $batchNum = 1;
+
+            foreach ($chunks as $chunk) {
+                $chunkIds = array_map(function ($i) { return (int)$i['id_queue']; }, $chunk);
+
+                // Marcar como processing (optimistic lock)
+                Db::getInstance()->execute(
+                    'UPDATE `' . $p . 'sync_queue`
+                     SET `status` = \'' . self::STATUS_PROCESSING . '\'
+                     WHERE `id_queue` IN (' . implode(',', $chunkIds) . ')
+                       AND `status` = \'' . self::STATUS_PENDING . '\''
+                );
+
+                // Construir los payloads del lote
+                $batchPayloads = [];
+                foreach ($chunk as $item) {
+                    $decoded = json_decode($item['payload'], true);
+                    if ($decoded) {
+                        $batchPayloads[] = $decoded;
+                    }
+                }
+
+                if (empty($batchPayloads)) {
+                    // Nada que enviar en este trozo → marcar done
+                    Db::getInstance()->execute(
+                        'UPDATE `' . $p . 'sync_queue`
+                         SET `status` = \'' . self::STATUS_DONE . '\', `date_done` = NOW()
+                         WHERE `id_queue` IN (' . implode(',', $chunkIds) . ')'
+                    );
+                    $stats['skipped'] += count($chunk);
+                    continue;
+                }
+
+                $result = $api->sendBatch($batchPayloads, 'stock', $batchNum++, 0, $timeout);
+
+                if ($result['success']) {
+                    Db::getInstance()->execute(
+                        'UPDATE `' . $p . 'sync_queue`
+                         SET `status` = \'' . self::STATUS_DONE . '\', `date_done` = NOW()
+                         WHERE `id_queue` IN (' . implode(',', $chunkIds) . ')'
+                    );
+                    $stats['processed'] += count($chunk);
+
+                    // Actualizar last_sync de la conexión
+                    Db::getInstance()->update('sync_connections', [
+                        'last_sync'  => date('Y-m-d H:i:s'),
+                        'last_error' => null,
+                    ], 'id_connection = ' . $idConn);
+                } else {
+                    // Fallo en el lote → reencolar items individualmente con backoff
+                    foreach ($chunk as $item) {
+                        self::handleFailure($item, $result['error'] ?: 'Error al enviar lote de stock');
+                    }
+                    $stats['failed'] += count($chunk);
+                }
+            }
+        }
+
+        return $stats;
     }
 
     // =========================================================================

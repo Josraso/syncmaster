@@ -125,21 +125,23 @@ class SyncMaster extends Module
             ) ENGINE={$e} DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
 
             "CREATE TABLE IF NOT EXISTS `{$p}sync_queue` (
-                `id_queue`      INT(11) NOT NULL AUTO_INCREMENT,
-                `id_connection` INT(11) NOT NULL,
-                `entity_type`   VARCHAR(32) NOT NULL,
-                `entity_id`     INT(11) NOT NULL,
-                `action`        ENUM('create','update','delete') NOT NULL,
-                `payload`       LONGTEXT NOT NULL,
-                `status`        ENUM('pending','processing','done','failed') NOT NULL DEFAULT 'pending',
-                `attempts`      TINYINT(3) NOT NULL DEFAULT 0,
-                `next_retry`    DATETIME DEFAULT NULL,
-                `error_msg`     TEXT DEFAULT NULL,
-                `date_add`      DATETIME NOT NULL,
-                `date_done`     DATETIME DEFAULT NULL,
+                `id_queue`            INT(11) NOT NULL AUTO_INCREMENT,
+                `id_connection`       INT(11) NOT NULL,
+                `entity_type`         VARCHAR(32) NOT NULL,
+                `entity_id`           INT(11) NOT NULL,
+                `id_product_attribute` INT(11) NOT NULL DEFAULT 0,
+                `action`              ENUM('create','update','delete') NOT NULL,
+                `payload`             LONGTEXT NOT NULL,
+                `status`              ENUM('pending','processing','done','failed') NOT NULL DEFAULT 'pending',
+                `attempts`            TINYINT(3) NOT NULL DEFAULT 0,
+                `next_retry`          DATETIME DEFAULT NULL,
+                `error_msg`           TEXT DEFAULT NULL,
+                `date_add`            DATETIME NOT NULL,
+                `date_done`           DATETIME DEFAULT NULL,
                 PRIMARY KEY (`id_queue`),
                 KEY `idx_status_retry` (`status`, `next_retry`),
-                KEY `idx_connection` (`id_connection`)
+                KEY `idx_connection` (`id_connection`),
+                KEY `idx_stock_dedup` (`id_connection`, `entity_type`, `entity_id`, `id_product_attribute`, `status`)
             ) ENGINE={$e} DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
 
             "CREATE TABLE IF NOT EXISTS `{$p}sync_log` (

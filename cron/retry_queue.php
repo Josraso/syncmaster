@@ -9,6 +9,9 @@
  * https://tutienda.com/modules/syncmaster/cron/retry_queue.php?token=TU_TOKEN
  */
 
+// Evitar que PHP mate el proceso por timeout (los 500 en cron suelen ser por esto)
+@set_time_limit(300);
+
 // Localizar PrestaShop
 $psRoot = realpath(dirname(__FILE__) . '/../../../');
 if (!file_exists($psRoot . '/config/config.inc.php')) {
@@ -57,6 +60,12 @@ foreach ([
         'skip_images' => "ALTER TABLE `{$_pCron}sync_initial_job`
             ADD COLUMN `skip_images` TINYINT(1) NOT NULL DEFAULT 0 AFTER `batch_size`",
     ],
+    'sync_queue' => [
+        'id_product_attribute' => "ALTER TABLE `{$_pCron}sync_queue`
+            ADD COLUMN `id_product_attribute` INT(11) NOT NULL DEFAULT 0 AFTER `entity_id`,
+            ADD KEY `idx_stock_dedup`
+            (`id_connection`, `entity_type`, `entity_id`, `id_product_attribute`, `status`)",
+    ],
 ] as $_cronTable => $_cronCols) {
     $_cronExisting = [];
     $_cronRows = Db::getInstance()->executeS(
@@ -87,7 +96,9 @@ unset($_pCron, $_cronTable, $_cronCols, $_cronExisting, $_cronRows, $_col, $_sql
 // =========================================================================
 // 1. PROCESAR COLA DE REINTENTOS (eventos en tiempo real)
 // =========================================================================
-$stats = SyncMasterQueue::processQueue(50);
+// El stock va en su propio fast-path (lotes), así que este límite
+// aplica solo a productos/categorías/etc. (items pesados).
+$stats = SyncMasterQueue::processQueue(100);
 
 // Limpiar items viejos completados
 SyncMasterQueue::cleanup(7);
