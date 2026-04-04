@@ -217,16 +217,17 @@ class SyncMasterImporter
         }
 
         // Textos multiidioma
-        // Para productos nuevos se escriben SIEMPRE (sin ellos el producto queda roto en PS).
-        // Para actualizaciones se aplica el filtro de field config.
+        // name y link_rewrite son obligatorios para que PS no explote al crear un producto nuevo.
+        // El resto de campos de texto respetan shouldWrite incluso para productos nuevos.
+        $requiredTextFields = ['name', 'link_rewrite'];
+        $optionalTextFields = [
+            'description', 'description_short',
+            'available_now', 'available_later',
+            'meta_title', 'meta_description', 'meta_keywords',
+        ];
+
         if (isset($data['translations']) && ($isNew || $forceTranslations || $this->shouldWrite('name', null, $savedHashes))) {
             $defaultLangId = (int)Configuration::get('PS_LANG_DEFAULT');
-            $textFields = [
-                'name', 'description', 'description_short',
-                'available_now', 'available_later',
-                'meta_title', 'meta_description', 'meta_keywords',
-                'link_rewrite',
-            ];
 
             // Primera pasada: escribir las traducciones que coincidan por ISO
             $writtenLangs = [];
@@ -236,8 +237,18 @@ class SyncMasterImporter
                     continue;
                 }
                 $writtenLangs[] = $idLang;
-                foreach ($textFields as $tf) {
+
+                // Campos obligatorios: siempre se escriben para nuevos / forceTranslations
+                foreach ($requiredTextFields as $tf) {
                     if (isset($trans[$tf]) && ($isNew || $forceTranslations || $this->shouldWrite($tf, $trans[$tf], $savedHashes))) {
+                        $product->$tf[$idLang] = $trans[$tf];
+                        $newHashes[$tf] = SyncMasterSerializer::hashField($trans[$tf]);
+                    }
+                }
+
+                // Campos opcionales: siempre respetan shouldWrite (incluso para nuevos)
+                foreach ($optionalTextFields as $tf) {
+                    if (isset($trans[$tf]) && ($forceTranslations || $this->shouldWrite($tf, $trans[$tf], $savedHashes))) {
                         $product->$tf[$idLang] = $trans[$tf];
                         $newHashes[$tf] = SyncMasterSerializer::hashField($trans[$tf]);
                     }
@@ -249,8 +260,15 @@ class SyncMasterImporter
             if ($isNew && !in_array($defaultLangId, $writtenLangs)) {
                 $firstTrans = reset($data['translations']);
                 if ($firstTrans) {
-                    foreach ($textFields as $tf) {
+                    // Solo copiamos los campos obligatorios en el fallback
+                    foreach ($requiredTextFields as $tf) {
                         if (isset($firstTrans[$tf])) {
+                            $product->$tf[$defaultLangId] = $firstTrans[$tf];
+                        }
+                    }
+                    // Y los opcionales solo si shouldWrite lo permite
+                    foreach ($optionalTextFields as $tf) {
+                        if (isset($firstTrans[$tf]) && $this->shouldWrite($tf, $firstTrans[$tf], $savedHashes)) {
                             $product->$tf[$defaultLangId] = $firstTrans[$tf];
                         }
                     }

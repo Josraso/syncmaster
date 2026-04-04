@@ -63,7 +63,7 @@ class SyncMasterInitialJob
         $catFilter    = isset($connection['category_filter']) ? $connection['category_filter'] : '';
         $totalProds   = self::countProducts($catFilter);
         $totalBatches = ceil($totalProds / $batchSize)
-            + ceil(self::countCategories() / $batchSize)
+            + ceil(self::countCategories($catFilter) / $batchSize)
             + ceil(self::countManufacturers() / $batchSize)
             + 2; // attributes + features (se cuenta al llegar)
 
@@ -317,6 +317,27 @@ class SyncMasterInitialJob
 
         switch ($phase) {
             case self::PHASE_CATEGORIES:
+                if ($hasCatFilter) {
+                    // Exportar solo las categorías seleccionadas + sus ancestros
+                    // (necesarios para que el slave pueda reconstruir el árbol correctamente)
+                    return Db::getInstance()->executeS(
+                        'SELECT DISTINCT c.id_category
+                         FROM `' . _DB_PREFIX_ . 'category` c
+                         WHERE c.id_category > 2
+                           AND (
+                             c.id_category IN (' . $catIn . ')
+                             OR EXISTS (
+                                 SELECT 1 FROM `' . _DB_PREFIX_ . 'category` sel
+                                 WHERE sel.id_category IN (' . $catIn . ')
+                                   AND c.nleft < sel.nleft
+                                   AND c.nright > sel.nright
+                                   AND c.id_category > 2
+                             )
+                           )
+                         ORDER BY c.nleft ASC
+                         LIMIT ' . (int)$limit . ' OFFSET ' . (int)$offset
+                    );
+                }
                 return Db::getInstance()->executeS(
                     'SELECT id_category FROM `' . _DB_PREFIX_ . 'category`
                      WHERE id_category > 2
@@ -464,7 +485,8 @@ class SyncMasterInitialJob
                     $data = SyncMasterSerializer::serializeProduct(
                         (int)$item['id_product'],
                         $fieldConfig,
-                        isset($job['lang_filter']) ? $job['lang_filter'] : ''
+                        isset($job['lang_filter'])     ? $job['lang_filter']     : '',
+                        isset($job['category_filter']) ? $job['category_filter'] : ''
                     );
                     if ($data) {
                         // Aplicar regla de precio
@@ -606,8 +628,35 @@ class SyncMasterInitialJob
         );
     }
 
-    private static function countCategories()
+    private static function countCategories($categoryFilter = '')
     {
+        $catIds = [];
+        if (!empty($categoryFilter)) {
+            foreach (explode(',', $categoryFilter) as $cid) {
+                $cid = (int)$cid;
+                if ($cid > 0) {
+                    $catIds[] = $cid;
+                }
+            }
+        }
+        if (!empty($catIds)) {
+            $catIn = implode(',', $catIds);
+            return (int)Db::getInstance()->getValue(
+                'SELECT COUNT(DISTINCT c.id_category)
+                 FROM `' . _DB_PREFIX_ . 'category` c
+                 WHERE c.id_category > 2
+                   AND (
+                     c.id_category IN (' . $catIn . ')
+                     OR EXISTS (
+                         SELECT 1 FROM `' . _DB_PREFIX_ . 'category` sel
+                         WHERE sel.id_category IN (' . $catIn . ')
+                           AND c.nleft < sel.nleft
+                           AND c.nright > sel.nright
+                           AND c.id_category > 2
+                     )
+                   )'
+            );
+        }
         return (int)Db::getInstance()->getValue(
             'SELECT COUNT(*) FROM `' . _DB_PREFIX_ . 'category` WHERE id_category > 2'
         );

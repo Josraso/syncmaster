@@ -24,7 +24,7 @@ class SyncMasterSerializer
      * @param  array $fieldConfig  Lista de campos habilitados (de sync_field_config)
      * @return array|null
      */
-    public static function serializeProduct($idProduct, array $fieldConfig = [], $langFilter = '')
+    public static function serializeProduct($idProduct, array $fieldConfig = [], $langFilter = '', $catFilter = '')
     {
         $idLang    = SyncMasterVersionCompat::getDefaultLangId();
         $languages = SyncMasterVersionCompat::getSyncLanguages($langFilter);
@@ -197,9 +197,25 @@ class SyncMasterSerializer
         // Grupo: categorías
         // -----------------------------------------------------------------
         if (self::fieldEnabled('categories', $fieldConfig)) {
-            $cats = SyncMasterVersionCompat::getProductCategories($idProduct);
-            $data['categories'] = array_map('intval', $cats);
-            $data['id_category_default'] = (int)$product->id_category_default;
+            $cats = array_map('intval', SyncMasterVersionCompat::getProductCategories($idProduct));
+
+            // Filtrar categorías si hay filtro activo
+            if (!empty($catFilter)) {
+                $allowedCatIds = array_filter(array_map('intval', explode(',', $catFilter)));
+                $cats = array_values(array_filter($cats, function ($cid) use ($allowedCatIds) {
+                    return in_array($cid, $allowedCatIds);
+                }));
+            }
+
+            $data['categories'] = $cats;
+
+            // Ajustar id_category_default: si la default del master no está en la lista filtrada,
+            // usar la primera categoría filtrada como default.
+            $defaultCat = (int)$product->id_category_default;
+            if (!empty($catFilter) && !empty($cats) && !in_array($defaultCat, $cats)) {
+                $defaultCat = $cats[0];
+            }
+            $data['id_category_default'] = $defaultCat;
 
             // Datos de categorías (nombre para modo free ID)
             $catDetails = [];

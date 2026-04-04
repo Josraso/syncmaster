@@ -148,7 +148,8 @@ class SyncMasterQueue
         $items = Db::getInstance()->executeS(
             'SELECT q.*, c.remote_url, c.api_key, c.api_secret, c.timeout, c.id_mode,
                     COALESCE(c.delete_on_slave, 1) AS delete_on_slave,
-                    COALESCE(c.lang_filter, \'\') AS lang_filter
+                    COALESCE(c.lang_filter, \'\') AS lang_filter,
+                    COALESCE(c.category_filter, \'\') AS category_filter
              FROM `' . _DB_PREFIX_ . 'sync_queue` q
              INNER JOIN `' . _DB_PREFIX_ . 'sync_connections` c
                  ON c.id_connection = q.id_connection AND c.active = 1
@@ -290,7 +291,8 @@ class SyncMasterQueue
                 $data = SyncMasterSerializer::serializeProduct(
                     (int)$item['entity_id'],
                     $fieldConfig,
-                    $langFilter
+                    $langFilter,
+                    isset($item['category_filter']) ? $item['category_filter'] : ''
                 );
                 if (!$data) return null;
                 $data['action'] = $item['action'];
