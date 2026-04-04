@@ -305,6 +305,9 @@ class SyncmasterApiModuleFrontController extends ModuleFrontController
 
     private function handleBatch()
     {
+        // Evitar que PHP mate el proceso por max_execution_time durante lotes grandes
+        @set_time_limit(300);
+
         $auth       = $this->authenticate();
         $connection = $auth['connection'];
         $envelope   = $auth['payload'];

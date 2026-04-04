@@ -172,8 +172,8 @@
                         </div>
                         <div class="form-group">
                             <label>Timeout HTTP (seg)</label>
-                            <input type="number" name="timeout" class="form-control" min="10" max="120"
-                                   value="{if $connection.timeout}{$connection.timeout}{else}30{/if}">
+                            <input type="number" name="timeout" class="form-control" min="10" max="300"
+                                   value="{if $connection.timeout}{$connection.timeout}{else}60{/if}">
                         </div>
                     </div>
                 </div>
@@ -444,8 +444,8 @@
                     <div class="col-md-4">
                         <div class="form-group">
                             <label>Timeout HTTP (seg)</label>
-                            <input type="number" name="timeout" class="form-control" min="10" max="120"
-                                   value="{if $connection.timeout}{$connection.timeout}{else}30{/if}">
+                            <input type="number" name="timeout" class="form-control" min="10" max="300"
+                                   value="{if $connection.timeout}{$connection.timeout}{else}60{/if}">
                         </div>
                     </div>
                     <div class="col-md-4">

@@ -1084,7 +1084,7 @@ class SyncMaster extends Module
             'lang_filter'     => pSQL(implode(',', $langFilter)),
             'batch_size'      => max(10, min(200, (int)Tools::getValue('batch_size', 50))),
             'batch_delay'     => max(0,  min(30,  (int)Tools::getValue('batch_delay', 1))),
-            'timeout'         => max(10, min(120, (int)Tools::getValue('timeout', 30))),
+            'timeout'         => max(10, min(300, (int)Tools::getValue('timeout', 60))),
             'date_upd'        => $now,
         ];
 
