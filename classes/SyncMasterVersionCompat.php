@@ -730,13 +730,51 @@ class SyncMasterVersionCompat
 
     /**
      * Mapa iso_code → id_lang para los idiomas de sync de una conexión.
+     * $langMap: CSV de pares "master_iso:local_iso" para remapear ISO entrantes.
+     * Ejemplo: "es:en" → cuando llega ISO 'es' del master, se guarda en el idioma 'en' local.
      */
-    public static function getSyncLanguageMap($langFilter = '')
+    public static function getSyncLanguageMap($langFilter = '', $langMap = '')
     {
+        // Construir mapa base local_iso → id_lang
+        $localMap = [];
+        foreach (self::getLanguages() as $lang) {
+            $localMap[$lang['iso_code']] = (int)$lang['id_lang'];
+        }
+
+        // Parsear el mapeo master_iso → local_iso
+        $remapping = [];
+        if ($langMap) {
+            foreach (explode(',', $langMap) as $pair) {
+                $parts = explode(':', trim($pair));
+                if (count($parts) === 2 && $parts[0] && $parts[1]) {
+                    $remapping[trim($parts[0])] = trim($parts[1]);
+                }
+            }
+        }
+
+        // Construir el mapa final: master_iso → id_lang_local
         $map = [];
         foreach (self::getSyncLanguages($langFilter) as $lang) {
-            $map[$lang['iso_code']] = (int)$lang['id_lang'];
+            $masterIso = $lang['iso_code'];
+            // Si hay remapping inverso: buscar qué ISO del master apunta a este idioma local
+            // El remapping es master_iso:local_iso, así que buscamos master_iso cuyo local_iso = este idioma
+            $localIso = $masterIso; // por defecto, mismo ISO
+            // Construir índice inverso: local_iso → master_iso
+            foreach ($remapping as $srcIso => $dstIso) {
+                if ($dstIso === $masterIso) {
+                    // srcIso del master mapea a este idioma local
+                    if (isset($localMap[$masterIso])) {
+                        $map[$srcIso] = $localMap[$masterIso];
+                    }
+                    $localIso = null; // ya gestionado vía remapping
+                    break;
+                }
+            }
+            if ($localIso !== null && isset($localMap[$localIso])) {
+                $map[$masterIso] = $localMap[$localIso];
+            }
         }
+
         return $map;
     }
 

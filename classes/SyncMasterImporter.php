@@ -16,12 +16,12 @@ class SyncMasterImporter
     private $fieldConfig; // array indexado por field_name
     private $langMap;     // iso_code => id_lang
 
-    public function __construct($idConnection, $idMode, $fieldConfig, $langFilter = '')
+    public function __construct($idConnection, $idMode, $fieldConfig, $langFilter = '', $langMap = '')
     {
         $this->idConnection = (int)$idConnection;
         $this->idMode       = $idMode;
         $this->fieldConfig  = $fieldConfig;
-        $this->langMap      = SyncMasterVersionCompat::getSyncLanguageMap($langFilter);
+        $this->langMap      = SyncMasterVersionCompat::getSyncLanguageMap($langFilter, $langMap);
     }
 
     // =========================================================================

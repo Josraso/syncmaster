@@ -457,6 +457,63 @@
                         <input type="hidden" name="batch_delay" value="1">
                     </div>
                 </div>
+
+                {* Mapeo de idiomas: ISO entrante del master → idioma local del slave *}
+                {if !empty($all_languages)}
+                <hr style="margin:20px 0">
+                <h4 style="margin-top:0">Mapeo de idiomas</h4>
+                <p class="help-block" style="margin-top:0">
+                    Para cada idioma que recibes del master, elige en qué idioma local guardarlo.<br>
+                    Útil si el master envía en español (<strong>es</strong>) y quieres importarlo en tu idioma inglés (<strong>en</strong>).
+                </p>
+                {* El campo lang_map guarda pares "master_iso:local_iso" separados por coma *}
+                {* Generamos un input hidden que JS rellena, y una tabla visual *}
+                <input type="hidden" name="lang_map" id="sm-lang-map-value"
+                       value="{$connection.lang_map|default:''|escape:'html'}">
+                <table class="table table-condensed" style="max-width:500px">
+                    <thead>
+                        <tr>
+                            <th>ISO que llega del master</th>
+                            <th>Idioma local donde guardarlo</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sm-lang-map-rows">
+                    {foreach $all_languages as $lang}
+                        <tr>
+                            <td>
+                                <input type="text" class="form-control sm-lang-src" style="width:80px"
+                                       placeholder="{$lang.iso_code}"
+                                       data-local-iso="{$lang.iso_code}"
+                                       value="{if isset($lang_map_parsed[$lang.iso_code])}{$lang_map_parsed[$lang.iso_code]|escape:'html'}{else}{$lang.iso_code}{/if}">
+                                <small class="text-muted">ISO del master</small>
+                            </td>
+                            <td>
+                                <strong>{$lang.name|escape:'html'}</strong>
+                                <span class="label label-default">{$lang.iso_code}</span>
+                                <small class="text-muted">idioma local</small>
+                            </td>
+                        </tr>
+                    {/foreach}
+                    </tbody>
+                </table>
+                <script>
+                (function($){
+                    function buildLangMap() {
+                        var pairs = [];
+                        $('#sm-lang-map-rows .sm-lang-src').each(function(){
+                            var src = $.trim($(this).val());
+                            var dst = $(this).data('local-iso');
+                            if (src && src !== dst) {
+                                pairs.push(src + ':' + dst);
+                            }
+                        });
+                        $('#sm-lang-map-value').val(pairs.join(','));
+                    }
+                    $('#sm-lang-map-rows .sm-lang-src').on('input', buildLangMap);
+                    $('form').on('submit', buildLangMap);
+                }(jQuery));
+                </script>
+                {/if}
             </div>
             <div class="panel-footer">
                 <button type="submit" class="btn btn-primary btn-lg">

@@ -244,6 +244,8 @@ class SyncMaster extends Module
                     ADD COLUMN `category_filter` TEXT DEFAULT NULL AFTER `delete_on_slave`",
                 'lang_filter'     => "ALTER TABLE `{$p}sync_connections`
                     ADD COLUMN `lang_filter` VARCHAR(255) DEFAULT NULL AFTER `category_filter`",
+                'lang_map'        => "ALTER TABLE `{$p}sync_connections`
+                    ADD COLUMN `lang_map` VARCHAR(500) DEFAULT NULL AFTER `lang_filter`",
             ],
             'sync_initial_job' => [
                 'skip_images' => "ALTER TABLE `{$p}sync_initial_job`
@@ -960,6 +962,7 @@ class SyncMaster extends Module
             'delete_on_slave'=> 1,
             'category_filter'=> '',
             'lang_filter'    => '',
+            'lang_map'       => '',
             'batch_size'     => 50,
             'batch_delay'    => 1,
             'timeout'        => 30,
@@ -998,6 +1001,17 @@ class SyncMaster extends Module
             $selectedLangIsos = array_filter(array_map('trim', explode(',', $connection['lang_filter'])));
         }
 
+        // lang_map: "master_iso:local_iso,..." — para slave, mapear ISO entrante a idioma local
+        $langMapParsed = [];
+        if (!empty($connection['lang_map'])) {
+            foreach (explode(',', $connection['lang_map']) as $pair) {
+                $parts = explode(':', trim($pair));
+                if (count($parts) === 2 && $parts[0] && $parts[1]) {
+                    $langMapParsed[trim($parts[0])] = trim($parts[1]);
+                }
+            }
+        }
+
         $allLanguages = Language::getLanguages(false);
 
         return $this->smFetch('connection_form.tpl', [
@@ -1015,6 +1029,7 @@ class SyncMaster extends Module
             'selected_categories' => $selectedCategories,
             'all_languages'       => $allLanguages,
             'selected_lang_isos'  => $selectedLangIsos,
+            'lang_map_parsed'     => $langMapParsed,
             'role_options'        => [
                 ['value' => 'free',   'label' => $this->l('Free ID — La hija puede tener su propio catálogo')],
                 ['value' => 'shared', 'label' => $this->l('Shared ID — Réplica exacta (mismo ID de producto)')],
@@ -1082,6 +1097,7 @@ class SyncMaster extends Module
             'delete_on_slave' => Tools::getValue('delete_on_slave', 0) ? 1 : 0,
             'category_filter' => pSQL(implode(',', $catFilter)),
             'lang_filter'     => pSQL(implode(',', $langFilter)),
+            'lang_map'        => pSQL(Tools::getValue('lang_map', '')),
             'batch_size'      => max(10, min(200, (int)Tools::getValue('batch_size', 50))),
             'batch_delay'     => max(0,  min(30,  (int)Tools::getValue('batch_delay', 1))),
             'timeout'         => max(10, min(300, (int)Tools::getValue('timeout', 60))),

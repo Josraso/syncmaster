@@ -50,6 +50,8 @@ foreach ([
             ADD COLUMN `category_filter` TEXT DEFAULT NULL AFTER `delete_on_slave`",
         'lang_filter'     => "ALTER TABLE `{$_pCron}sync_connections`
             ADD COLUMN `lang_filter` VARCHAR(255) DEFAULT NULL AFTER `category_filter`",
+        'lang_map'        => "ALTER TABLE `{$_pCron}sync_connections`
+            ADD COLUMN `lang_map` VARCHAR(500) DEFAULT NULL AFTER `lang_filter`",
     ],
     'sync_initial_job' => [
         'skip_images' => "ALTER TABLE `{$_pCron}sync_initial_job`
@@ -126,8 +128,11 @@ if (in_array($role, ['master', 'both'])) {
                 if (!empty($batchResult['done'])) {
                     break; // Job terminado
                 }
-                if (!empty($batchResult['error']) || !empty($batchResult['paused'])) {
-                    break; // Error o pausado → siguiente cron lo reintentará
+                if (!empty($batchResult['paused'])) {
+                    break; // Error de aplicación → pausado, siguiente cron reintentará
+                }
+                if (!empty($batchResult['retry'])) {
+                    break; // Error de red → salir del while, siguiente cron reintentará el mismo lote
                 }
             } catch (Exception $batchEx) {
                 $initialResult[] = ['error' => $batchEx->getMessage()];

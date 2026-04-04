@@ -275,7 +275,8 @@ class SyncmasterApiModuleFrontController extends ModuleFrontController
             $idConnection,
             $connection['id_mode'],
             $fieldConfig,
-            isset($connection['lang_filter']) ? $connection['lang_filter'] : ''
+            isset($connection['lang_filter']) ? $connection['lang_filter'] : '',
+            isset($connection['lang_map'])    ? $connection['lang_map']    : ''
         );
 
         try {
@@ -334,7 +335,8 @@ class SyncmasterApiModuleFrontController extends ModuleFrontController
             $idConnection,
             $connection['id_mode'],
             $fieldConfig,
-            isset($connection['lang_filter']) ? $connection['lang_filter'] : ''
+            isset($connection['lang_filter']) ? $connection['lang_filter'] : '',
+            isset($connection['lang_map'])    ? $connection['lang_map']    : ''
         );
 
         try {

@@ -178,14 +178,14 @@ class SyncMasterInitialJob
         // Serializar el lote
         $serialized = self::serializeBatch($phase, $items, $job);
 
-        // Enviar al slave
+        // Enviar al slave — usar mínimo 120s para lotes del sync inicial
         $api    = new SyncMasterApi($job['remote_url'], $job['api_key'], $job['api_secret']);
         $result = $api->sendBatch(
             $serialized,
             $phase,
             (int)$job['current_batch'] + 1,
             $idJob,
-            (int)$job['timeout']
+            max((int)$job['timeout'], 120)
         );
 
         $durationMs = (int)((microtime(true) - $start) * 1000);
@@ -230,16 +230,38 @@ class SyncMasterInitialJob
         ]);
 
         if (!$result['success']) {
-            // Fallo en el lote → pausar el job para que el admin decida
+            $errMsg = isset($result['error']) ? $result['error'] : 'Error desconocido';
+
+            // Distinguir error de red (timeout/cURL) de error de aplicación
+            $isNetworkError = (
+                stripos($errMsg, 'cURL') !== false ||
+                stripos($errMsg, 'timed out') !== false ||
+                stripos($errMsg, 'Connection') !== false ||
+                stripos($errMsg, 'Could not resolve') !== false
+            );
+
+            if ($isNetworkError) {
+                // Error de red: NO pausar — el siguiente cron reintentará el mismo lote
+                // (processed_items no avanzó, por lo que el lote se volverá a intentar)
+                return [
+                    'done'   => false,
+                    'error'  => $errMsg,
+                    'retry'  => true,
+                    'phase'  => $phase,
+                    'batch'  => (int)$job['current_batch'] + 1,
+                ];
+            }
+
+            // Error de aplicación → pausar el job
             Db::getInstance()->update('sync_initial_job', [
                 'status'       => 'paused',
                 'failed_items' => (int)$job['failed_items'] + $itemsFail,
-                'error_log'    => pSQL('Lote ' . ((int)$job['current_batch'] + 1) . ': ' . $result['error']),
+                'error_log'    => pSQL('Lote ' . ((int)$job['current_batch'] + 1) . ': ' . $errMsg),
             ], 'id_job = ' . (int)$idJob);
 
             return [
                 'done'    => false,
-                'error'   => $result['error'],
+                'error'   => $errMsg,
                 'phase'   => $phase,
                 'batch'   => (int)$job['current_batch'] + 1,
                 'paused'  => true,
