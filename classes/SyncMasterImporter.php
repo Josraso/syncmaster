@@ -545,10 +545,6 @@ class SyncMasterImporter
      */
     public function resolvePendingCombinationImages()
     {
-        if ($this->idMode === 'shared') {
-            return; // en shared los IDs de imagen son distintos pero no tenemos mapa
-        }
-
         $rows = Db::getInstance()->executeS(
             'SELECT local_id, field_hashes
              FROM `' . _DB_PREFIX_ . 'sync_id_map`
@@ -760,17 +756,14 @@ class SyncMasterImporter
             return ['success' => true, 'skipped' => true];
         }
 
-        // Resolver attribute ID: en shared-ID los IDs coinciden; en free hay que usar el mapa
+        // Las combinaciones nunca se fuerzan al mismo ID (ni en modo shared) — siempre
+        // se crean con ID autogenerado, así que su mapeo se resuelve vía sync_id_map.
         $localAttrId = 0;
         if ($masterAttrId) {
-            if ($this->idMode === 'shared') {
-                $localAttrId = $masterAttrId;
-            } else {
-                $localAttrId = $this->resolveLocalId('product_attribute', $masterAttrId);
-                // Si no hay mapa aún (primera sync o combinación no importada todavía), ignorar
-                if (!$localAttrId) {
-                    return ['success' => true, 'skipped' => true];
-                }
+            $localAttrId = $this->resolveLocalId('product_attribute', $masterAttrId);
+            // Si no hay mapa aún (primera sync o combinación no importada todavía), ignorar
+            if (!$localAttrId) {
+                return ['success' => true, 'skipped' => true];
             }
         }
 
@@ -1026,9 +1019,18 @@ class SyncMasterImporter
     // MAPEO DE IDs
     // =========================================================================
 
+    /**
+     * Entidades que SÍ se fuerzan al mismo id_product/id_category/id_manufacturer
+     * en modo shared (vía force_id en add()). El resto (imágenes, combinaciones,
+     * grupos de atributos, características...) SIEMPRE se crean con ID autogenerado,
+     * incluso en modo shared, porque nunca se les aplica force_id — así que necesitan
+     * el mapeo de sync_id_map igual que en modo free.
+     */
+    private static $sharedIdEntities = ['product', 'category', 'manufacturer'];
+
     private function resolveLocalId($entityType, $masterId)
     {
-        if ($this->idMode === 'shared') {
+        if ($this->idMode === 'shared' && in_array($entityType, self::$sharedIdEntities, true)) {
             return $masterId; // En modo shared, el ID es el mismo
         }
 
@@ -1044,7 +1046,7 @@ class SyncMasterImporter
 
     private function saveIdMap($entityType, $masterId, $localId, array $hashes)
     {
-        if ($this->idMode === 'shared') {
+        if ($this->idMode === 'shared' && in_array($entityType, self::$sharedIdEntities, true)) {
             return; // No necesitamos mapeo en modo shared
         }
 
