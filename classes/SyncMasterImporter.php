@@ -123,6 +123,24 @@ class SyncMasterImporter
         } else {
             $product = new Product($localId);
             if (!Validate::isLoadedObject($product)) {
+                // En modo shared, antes de asumir "producto eliminado localmente" comprobamos
+                // por SQL directo si la fila ya existe en `product` (puede que exista pero no
+                // cargue por un problema de asociación de tienda/idioma). Si existe, NO la
+                // recreamos — eso generaría un duplicado con force_id fallando silenciosamente.
+                if ($this->idMode === 'shared') {
+                    $rawExists = (bool)Db::getInstance()->getValue(
+                        'SELECT id_product FROM `' . _DB_PREFIX_ . 'product`
+                         WHERE id_product = ' . (int)$masterId
+                    );
+                    if ($rawExists) {
+                        return [
+                            'success' => false,
+                            'error'   => 'El producto #' . $masterId . ' existe en la tabla product pero no '
+                                . 'se pudo cargar (revisa la asociación a la tienda/product_shop). '
+                                . 'No se crea un duplicado.',
+                        ];
+                    }
+                }
                 // El producto fue eliminado localmente, recrear
                 $product = new Product();
                 if ($this->idMode === 'shared') {
@@ -280,6 +298,24 @@ class SyncMasterImporter
         if ($isNew) {
             $saved = $product->add();
             $localId = (int)$product->id;
+
+            // En modo shared el force_id DEBE dejar el producto en id_product=master_id.
+            // Si PrestaShop ignoró force_id (versión/engine concreto) el INSERT habría
+            // creado el producto con OTRO id autoincremental: eso es exactamente el
+            // "duplicado sin relación" reportado. Lo detectamos, borramos la fila huérfana
+            // y devolvemos un error explícito en vez de dejar el duplicado en la tienda.
+            if ($saved && $this->idMode === 'shared' && $localId !== $masterId) {
+                $orphanId = $localId;
+                Db::getInstance()->execute('DELETE FROM `' . _DB_PREFIX_ . 'product` WHERE id_product = ' . (int)$orphanId);
+                Db::getInstance()->execute('DELETE FROM `' . _DB_PREFIX_ . 'product_shop` WHERE id_product = ' . (int)$orphanId);
+                Db::getInstance()->execute('DELETE FROM `' . _DB_PREFIX_ . 'product_lang` WHERE id_product = ' . (int)$orphanId);
+                return [
+                    'success' => false,
+                    'error'   => 'No se pudo forzar id_product=' . $masterId . ' en modo shared '
+                        . '(PrestaShop generó id=' . $orphanId . '). Se eliminó la fila huérfana '
+                        . 'para evitar un duplicado.',
+                ];
+            }
         } else {
             $saved = $product->update();
         }
