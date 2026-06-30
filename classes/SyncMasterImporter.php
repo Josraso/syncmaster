@@ -351,8 +351,10 @@ class SyncMasterImporter
         // Imágenes inline — importar ANTES de combinaciones para que los IDs
         // ya estén mapeados cuando se asocien imágenes a cada combinación.
         // Se omite si el payload lleva skip_images=true (sync rápido sin imágenes).
+        // isset() (no !empty()) para que también entre cuando el master envía [] —
+        // eso significa "el producto ya no tiene imágenes" y hay que borrarlas del slave.
         // -----------------------------------------------------------------
-        if (!empty($data['images']) && empty($data['skip_images'])
+        if (isset($data['images']) && empty($data['skip_images'])
             && $this->shouldWrite('images', null, $savedHashes)
         ) {
             $this->importProductImagesInline($masterId, $localId, $data['images']);
@@ -604,16 +606,48 @@ class SyncMasterImporter
     }
 
     /**
-     * Importa imágenes incluidas en el payload del producto (modo queue real-time).
-     * Solo descarga las que aún no estén mapeadas para no re-descargar en cada update.
+     * Sincroniza las imágenes de un producto con el master:
+     * - Descarga las nuevas (no mapeadas aún).
+     * - Borra del slave las que ya no están en el master (imagen eliminada).
      */
     private function importProductImagesInline($masterProductId, $localProductId, array $images)
     {
+        // IDs de imagen del master que el producto debe tener ahora
+        $masterImgIds = array_map(function ($img) { return (int)$img['id_image']; }, $images);
+
+        // Eliminar del slave imágenes que ya no existen en el master
+        // (buscamos vía sync_id_map qué imágenes del slave pertenecen a este producto)
+        $mappedRows = Db::getInstance()->executeS(
+            'SELECT master_id, local_id FROM `' . _DB_PREFIX_ . 'sync_id_map`
+             WHERE id_connection = ' . $this->idConnection . '
+               AND entity_type = \'image\'
+               AND local_id IN (
+                   SELECT id_image FROM `' . _DB_PREFIX_ . 'image`
+                   WHERE id_product = ' . (int)$localProductId . '
+               )'
+        ) ?: [];
+
+        foreach ($mappedRows as $row) {
+            if (!in_array((int)$row['master_id'], $masterImgIds, true)) {
+                // El master ya no tiene esta imagen → borrar del slave
+                $img = new Image((int)$row['local_id']);
+                if (Validate::isLoadedObject($img)) {
+                    $img->delete();
+                }
+                Db::getInstance()->execute(
+                    'DELETE FROM `' . _DB_PREFIX_ . 'sync_id_map`
+                     WHERE id_connection = ' . $this->idConnection . '
+                       AND entity_type = \'image\'
+                       AND local_id = ' . (int)$row['local_id']
+                );
+            }
+        }
+
+        // Descargar imágenes nuevas (no mapeadas aún)
         foreach ($images as $imgData) {
             $masterImgId = (int)$imgData['id_image'];
-            // Si ya está mapeada, omitir (no volver a descargar)
             if ($this->resolveLocalId('image', $masterImgId)) {
-                continue;
+                continue; // ya importada
             }
             if (empty($imgData['url'])) {
                 continue;
@@ -944,12 +978,29 @@ class SyncMasterImporter
     private function deleteProduct($masterId, $localId)
     {
         if ($localId) {
+            // Limpiar mapeos de imágenes del producto antes de borrarlo
+            // (si se re-crease después, las fotos podrían quedar "bloqueadas" como
+            // ya importadas aunque ya no existan)
+            $imageLocalIds = Db::getInstance()->executeS(
+                'SELECT id_image FROM `' . _DB_PREFIX_ . 'image`
+                 WHERE id_product = ' . (int)$localId
+            ) ?: [];
+            if ($imageLocalIds) {
+                $imgIds = implode(',', array_map(function ($r) { return (int)$r['id_image']; }, $imageLocalIds));
+                Db::getInstance()->execute(
+                    'DELETE FROM `' . _DB_PREFIX_ . 'sync_id_map`
+                     WHERE id_connection = ' . $this->idConnection . '
+                       AND entity_type = \'image\'
+                       AND local_id IN (' . $imgIds . ')'
+                );
+            }
+
             $product = new Product($localId);
             if (Validate::isLoadedObject($product)) {
                 $product->delete();
             }
         }
-        // Limpiar mapeo
+        // Limpiar mapeo del producto
         Db::getInstance()->execute(
             'DELETE FROM `' . _DB_PREFIX_ . 'sync_id_map`
              WHERE id_connection = ' . $this->idConnection . '
